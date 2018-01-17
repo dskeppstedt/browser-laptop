@@ -101,8 +101,8 @@ class DownloadItem extends React.Component {
     return this.props.downloadState === downloadStates.PAUSED
   }
 
-  get isDiscarded () {
-    return this.props.downloadState === downloadStates.DISCARDED
+  get isSafeBrowsingBlocked () {
+    return this.props.downloadState === downloadStates.SAFEBROWSINGBLOCKED
   }
 
   mergeProps (state, ownProps) {
@@ -280,13 +280,13 @@ class DownloadItem extends React.Component {
               : null
           }
           {
-            this.isCancelled || this.isInterrupted || this.isUnauthorized || this.isCompleted || this.isPaused || this.isInProgress || this.isDiscarded
+            this.isCancelled || this.isInterrupted || this.isUnauthorized || this.isCompleted || this.isPaused || this.isInProgress || this.isSafeBrowsingBlocked
             ? <div className='downloadState' data-l10n-id={this.props.statel10n} data-l10n-args={JSON.stringify(l10nStateArgs)} />
             : null
           }
         </span>
         {
-          this.isDiscarded
+          this.isSafeBrowsingBlocked
           ? <span className='fa fa-exclamation-triangle' />
           : <span className='downloadArrow fa-caret-down fa' />
         }

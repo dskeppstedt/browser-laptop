@@ -623,7 +623,7 @@ function registerForDownloadListener (session) {
 
     item.on('done', function (e, state, dangerous) {
       if (dangerous) {
-        state = downloadStates.DISCARDED
+        state = downloadStates.SAFEBROWSINGBLOCKED
       }
       if (!item.getSavePath()) {
         return
