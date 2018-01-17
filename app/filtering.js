@@ -548,6 +548,10 @@ function registerPermissionHandler (session, partition) {
 function updateDownloadState (win, downloadId, item, state) {
   updateElectronDownloadItem(win, downloadId, item, state)
 
+  if (win) {
+    win.webContents.send(messages.SHOW_DOWNLOADS_TOOLBAR)
+  }
+
   if (!item) {
     appActions.mergeDownloadDetail(downloadId, { state: downloadStates.INTERRUPTED })
     return
@@ -617,7 +621,10 @@ function registerForDownloadListener (session) {
       })
     })
 
-    item.on('done', function (e, state) {
+    item.on('done', function (e, state, dangerous) {
+      if (dangerous) {
+        state = downloadStates.DISCARDED
+      }
       if (!item.getSavePath()) {
         return
       }
