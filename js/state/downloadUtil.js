@@ -40,7 +40,7 @@ const shouldAllowRemoveFromList = (download) =>
 const getL10nId = (download) => {
   switch (download.get('state')) {
     case downloadStates.DISCARDED:
-      return 'downloadDiscarded' 
+      return 'downloadDiscarded'
     case downloadStates.INTERRUPTED:
       return 'downloadInterrupted'
     case downloadStates.CANCELLED:
