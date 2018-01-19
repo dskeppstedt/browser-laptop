@@ -71,7 +71,7 @@ const getPercentageComplete = (download) => {
   return Math.ceil(download.get('receivedBytes') / totalBytes * 100) + '%'
 }
 
-const shouldAllowCopyLink = (download) => (download && !!download.get('url') && !downloadIsInState(download, [downloadStates.SAFEBROWSINGBLOCKED])) || false
+const shouldAllowCopyLink = (download) => (download && !!download.get('url') && !downloadIsInState(download, [downloadStates.SAFE_BROWSING_BLOCKED])) || false
 
 const getDownloadItems = (state) => {
   if (!state || !state.get('downloads')) {
