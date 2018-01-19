@@ -102,7 +102,7 @@ class DownloadItem extends React.Component {
   }
 
   get isSafeBrowsingBlocked () {
-    return this.props.downloadState === downloadStates.SAFEBROWSINGBLOCKED
+    return this.props.downloadState === downloadStates.SAFE_BROWSING_BLOCKED
   }
 
   mergeProps (state, ownProps) {

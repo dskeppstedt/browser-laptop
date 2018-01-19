@@ -39,7 +39,7 @@ const shouldAllowRemoveFromList = (download) =>
 
 const getL10nId = (download) => {
   switch (download.get('state')) {
-    case downloadStates.SAFEBROWSINGBLOCKED:
+    case downloadStates.SAFE_BROWSING_BLOCKED:
       return 'downloadSafeBrowsingBlocked'
     case downloadStates.INTERRUPTED:
       return 'downloadInterrupted'

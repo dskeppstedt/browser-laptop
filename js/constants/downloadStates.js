@@ -14,7 +14,7 @@ const downloadStates = {
   CANCELLED: _,
   INTERRUPTED: _,
   UNAUTHORIZED: _,
-  SAFEBROWSINGBLOCKED: _
+  SAFE_BROWSING_BLOCKED: _
 }
 
 module.exports = mapValuesByKeys(downloadStates)
