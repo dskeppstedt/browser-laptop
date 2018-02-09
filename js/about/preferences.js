@@ -52,6 +52,7 @@ const adInsertion = appConfig.resourceNames.AD_INSERTION
 const trackingProtection = appConfig.resourceNames.TRACKING_PROTECTION
 const httpsEverywhere = appConfig.resourceNames.HTTPS_EVERYWHERE
 const safeBrowsing = appConfig.resourceNames.SAFE_BROWSING
+const safeBrowsingAll = appConfig.resourceNames.SAFE_BROWSING_ALL
 const noScript = appConfig.resourceNames.NOSCRIPT
 const flash = appConfig.resourceNames.FLASH
 
@@ -87,7 +88,7 @@ const braveryPermissionNames = {
   'shieldsUp': ['boolean'],
   'adControl': ['string'],
   'cookieControl': ['string'],
-  'safeBrowsing': ['boolean'],
+  'safeBrowsingControl': ['string'],
   'httpsEverywhere': ['boolean'],
   'fingerprintingProtection': ['string'],
   'noScript': ['boolean', 'number']
@@ -454,7 +455,6 @@ class ShieldsTab extends ImmutableComponent {
     super()
     this.onChangeAdControl = this.onChangeAdControl.bind(this)
     this.onToggleHTTPSE = this.onToggleSetting.bind(this, httpsEverywhere)
-    this.onToggleSafeBrowsing = this.onToggleSetting.bind(this, safeBrowsing)
     this.onToggleNoScript = this.onToggleSetting.bind(this, noScript)
   }
   onChangeAdControl (e) {
@@ -471,6 +471,10 @@ class ShieldsTab extends ImmutableComponent {
       aboutActions.setResourceEnabled(trackingProtection, false)
       aboutActions.setResourceEnabled(adInsertion, false)
     }
+  }
+  onChangeSafeBrowsingControl (e) {
+    aboutActions.setResourceEnabled(safeBrowsing, e.target.value === 'basicSafeBrowsing' || e.target.value === 'advancedSafeBrowsing')
+    aboutActions.setResourceEnabled(safeBrowsingAll, e.target.value === 'advancedSafeBrowsing')
   }
   onChangeCookieControl (e) {
     aboutActions.setResourceEnabled(cookieblock, e.target.value === 'block3rdPartyCookie')
@@ -514,9 +518,17 @@ class ShieldsTab extends ImmutableComponent {
             <option data-l10n-id='blockAllFingerprinting' value='blockAllFingerprinting' />
           </SettingDropdown>
         </SettingItem>
+        <SettingItem dataL10nId='safeBrowsingControl'>
+          <SettingDropdown
+            value={this.props.braveryDefaults.get('safeBrowsingControl')}
+            onChange={this.onChangeSafeBrowsingControl}>
+            <option data-l10n-id='advancedSafeBrowsing' value='advancedSafeBrowsing' />
+            <option data-l10n-id='basicSafeBrowsing' value='basicSafeBrowsing' />
+            <option data-l10n-id='disableSafeBrowsing' value='disableSafeBrowsing' />
+          </SettingDropdown>
+        </SettingItem>
         <SettingCheckbox checked={this.props.braveryDefaults.get('httpsEverywhere')} dataL10nId='httpsEverywhere' onChange={this.onToggleHTTPSE} />
         <SettingCheckbox checked={this.props.braveryDefaults.get('noScript')} dataL10nId='noScriptPref' onChange={this.onToggleNoScript} />
-        <SettingCheckbox checked={this.props.braveryDefaults.get('safeBrowsing')} dataL10nId='safeBrowsing' onChange={this.onToggleSafeBrowsing} />
         {/* TODO: move this inline style to Aphrodite once refactored */}
         <div style={{marginTop: '15px'}}>
           <BrowserButton
