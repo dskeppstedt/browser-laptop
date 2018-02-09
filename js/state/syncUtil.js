@@ -194,8 +194,8 @@ const applySiteSettingRecord = (record) => {
       return adControlEnum[value]
     } else if (key === 'cookieControl') {
       return cookieControlEnum[value]
-    } else if (key == 'safeBrowsingControl') {
-      return safeBrowsingControlEnum[value];
+    } else if (key === 'safeBrowsingControl') {
+      return safeBrowsingControlEnum[value]
     } else if (key === 'fingerprintingProtection' && typeof value === 'boolean') {
       // TODO: Migrate from bool to enum on all platforms
       return value ? 'blockAllFingerprinting' : 'block3rdPartyFingerprinting'
