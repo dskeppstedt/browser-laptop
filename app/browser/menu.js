@@ -13,13 +13,10 @@ const BrowserWindow = electron.BrowserWindow
 
 // Constants
 const appConfig = require('../../js/constants/appConfig')
-const appConstants = require('../../js/constants/appConstants')
-const windowConstants = require('../../js/constants/windowConstants')
 const messages = require('../../js/constants/messages')
 const settings = require('../../js/constants/settings')
 
 // State
-const {getByTabId} = require('../common/state/tabState')
 const tabState = require('../../app/common/state/tabState')
 const appStore = require('../../js/stores/appStore')
 
@@ -41,7 +38,6 @@ const isWindows = platformUtil.isWindows()
 let appMenu = null
 let closedFrames = new Immutable.OrderedMap()
 let lastClosedUrl = null
-let currentLocation = null
 
 // Submenu initialization
 const createFileSubmenu = () => {
@@ -329,7 +325,7 @@ const updateRecentlyClosedMenuItems = (state) => {
   }
 }
 
-const isCurrentLocationBookmarked = (state) => {
+const isCurrentLocationBookmarked = (state, currentLocation) => {
   return bookmarkUtil.isLocationBookmarked(state, currentLocation)
 }
 
@@ -600,6 +596,5 @@ module.exports = {
   isCurrentLocationBookmarked,
   appMenu,
   closedFrames,
-  lastClosedUrl,
-  currentLocation
-};
+  lastClosedUrl
+}
