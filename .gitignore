@@ -21,6 +21,7 @@ lib-cov
 
 # Coverage directory used by tools like istanbul
 coverage
+.nyc_output
 
 # Grunt intermediate storage (http://gruntjs.com/creating-plugins#storing-task-files)
 .grunt
@@ -80,3 +81,6 @@ app/extensions/brave/content/scripts/sync.js
 
 # script used for signing for widevine
 signature_generator.py
+
+# binaries
+app/extensions/bin

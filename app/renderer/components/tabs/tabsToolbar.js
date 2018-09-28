@@ -10,22 +10,26 @@ const {StyleSheet, css} = require('aphrodite/no-important')
 const ReduxComponent = require('../reduxComponent')
 const Tabs = require('./tabs')
 const PinnedTabs = require('./pinnedTabs')
-const BrowserButton = require('../common/browserButton')
+
+// Actions
+const windowActions = require('../../../../js/actions/windowActions')
+
+// State
+const windowState = require('../../../common/state/windowState')
 
 // Utils
 const contextMenus = require('../../../../js/contextMenus')
 const frameStateUtil = require('../../../../js/state/frameStateUtil')
+const {isFocused} = require('../../currentWindow')
 
 const globalStyles = require('../styles/global')
 const {theme} = require('../styles/theme')
-
-const menuButton = require('../../../../img/toolbar/menu_btn.svg')
 
 class TabsToolbar extends React.Component {
   constructor (props) {
     super(props)
     this.onContextMenu = this.onContextMenu.bind(this)
-    this.onHamburgerMenu = this.onHamburgerMenu.bind(this)
+    this.onMouseLeave = this.onMouseLeave.bind(this)
   }
 
   onContextMenu (e) {
@@ -42,8 +46,14 @@ class TabsToolbar extends React.Component {
     )
   }
 
-  onHamburgerMenu (e) {
-    contextMenus.onHamburgerMenu(this.props.activeFrameLocation, e)
+  onMouseLeave () {
+    if (this.props.fixTabWidth == null) {
+      return
+    }
+
+    windowActions.onTabMouseLeave({
+      fixTabWidth: null
+    })
   }
 
   mergeProps (state, ownProps) {
@@ -54,19 +64,28 @@ class TabsToolbar extends React.Component {
     const props = {}
     // used in renderer
     props.hasPinnedTabs = !pinnedTabs.isEmpty()
+    props.hasPreview = (frameStateUtil.getPreviewFrameKey(currentWindow) != null)
+    props.shouldAllowWindowDrag = windowState.shouldAllowWindowDrag(state, currentWindow, activeFrame, isFocused(state))
 
     // used in other functions
     props.activeFrameKey = activeFrame.get('key')
     props.activeFrameLocation = activeFrame.get('location', '')
     props.activeFrameTitle = activeFrame.get('title', '')
+    props.fixTabWidth = currentWindow.getIn(['ui', 'tabs', 'fixTabWidth'])
 
     return props
   }
 
   render () {
-    return <div className={css(styles.tabsToolbar)}
+    return <div
+      className={css(
+        styles.tabsToolbar,
+        this.props.shouldAllowWindowDrag && styles.tabsToolbar_allowWindowDragging,
+        this.props.hasPreview && styles.tabsToolbar_hasPreview
+      )}
       data-test-id='tabsToolbar'
       onContextMenu={this.onContextMenu}
+      onMouseLeave={this.onMouseLeave}
     >
       {
         this.props.hasPinnedTabs
@@ -74,50 +93,52 @@ class TabsToolbar extends React.Component {
         : null
       }
       <Tabs />
-      <BrowserButton
-        iconOnly
-        isMaskImage
-        size={globalStyles.spacing.tabsToolbarHeight}
-        custom={styles.tabsToolbar__button_menu}
-        l10nId='menuButton'
-        testId='menuButton'
-        onClick={this.onHamburgerMenu}
-      />
     </div>
   }
 }
 
 const styles = StyleSheet.create({
   tabsToolbar: {
-    boxSizing: 'border-box',
+    paddingTop: '1px',
+    boxSizing: 'content-box',
     backgroundColor: theme.tabsToolbar.backgroundColor,
     display: 'flex',
     userSelect: 'none',
-    WebkitAppRegion: 'no-drag',
-
-    // Default border styles
-    borderWidth: '1px 0 0 0',
-    borderStyle: 'solid',
-    borderColor: theme.tabsToolbar.border.color,
 
     // This element is set as border-box so it does not
     // take into account the borders as width gutter, so we
-    // increase its size by 1px to include the top border
-    height: `calc(${globalStyles.spacing.tabsToolbarHeight} + 1px)`
+    // increase its size by 1px to include the top border.
+    // This MUST result in an even number so we support veritcal centering.
+    height: globalStyles.spacing.tabsToolbarHeight,
+    position: 'relative',
+    // shadow done as pseudo element so that z-index can be controlled
+    ':after': {
+      boxShadow: 'inset 0 -0.5px var(--tabs-toolbar-shadow-spread, 3px) -0.5px rgba(0, 0, 0, 0.18)',
+      '--tabs-toolbar-transit-duration': theme.tab.transitionDurationOut,
+      '--tabs-toolbar-transit-easing': theme.tab.transitionEasingOut,
+      transition: `box-shadow var(--tabs-toolbar-transit-duration) var(--tabs-toolbar-transit-easing)`,
+      pointerEvents: 'none',
+      position: 'absolute',
+      top: 0,
+      bottom: 0,
+      right: 0,
+      left: 0,
+      zIndex: 200,
+      display: 'block',
+      content: '" "',
+      willChange: 'box-shadow'
+    }
   },
 
-  tabsToolbar__button_menu: {
-    backgroundColor: theme.tabsToolbar.button.backgroundColor,
-    WebkitMaskImage: `url(${menuButton})`,
-    WebkitMaskRepeat: 'no-repeat',
-    WebkitMaskPosition: 'center',
-    WebkitMaskSize: '12px 12px',
-    WebkitMaskOrigin: 'border',
-    marginRight: '5px',
+  tabsToolbar_allowWindowDragging: {
+    WebkitAppRegion: 'drag'
+  },
 
-    ':hover': {
-      opacity: 1.0,
-      backgroundColor: theme.tabsToolbar.button.onHover.backgroundColor
+  tabsToolbar_hasPreview: {
+    ':after': {
+      boxShadow: 'inset 0 -3px var(--tabs-toolbar-shadow-spread, 6px) -0.5px rgba(0, 0, 0, 0.18)',
+      '--tabs-toolbar-transit-duration': theme.tab.transitionDurationIn,
+      '--tabs-toolbar-transit-easing': theme.tab.transitionEasingIn
     }
   }
 })

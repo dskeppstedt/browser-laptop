@@ -15,6 +15,12 @@ switch (TEST_DIR) {
   case 'codecov':
     cmd.push('bash tools/codecov.sh')
     break
+  case 'tools':
+    cmd.push('python tools/test')
+    break
+  case 'security':
+    cmd.push('npm run check-security')
+    break
   case 'performance':
     // 2017-09-28 Use debug builds for tests which require muon to run with
     // --debug, currently broken in Linux on prod muon builds.
@@ -23,7 +29,7 @@ switch (TEST_DIR) {
     }
     // Intentionally no break, because perf tests also run the below
   default: // eslint-disable-line
-    cmd.push(`mocha "test/${TEST_DIR}/**/*Test.js"`)
+    cmd.push(`mocha "test/${TEST_DIR}/**/*Test.js" --globals chrome,DOMParser,XMLSerializer`)
 }
 
 execute(cmd, process.env, (err) => {

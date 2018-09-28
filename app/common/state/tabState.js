@@ -61,6 +61,10 @@ const validateAction = function (action) {
   return action
 }
 
+const selectTabs = function (state) {
+  return state.get('tabs', Immutable.List()).filter(tab => !tab.isEmpty())
+}
+
 const matchTab = function (queryInfo, tab) {
   queryInfo = queryInfo.toJS ? queryInfo.toJS() : queryInfo
   return !Object.keys(queryInfo).map((queryKey) => (tab.get(queryKey) === queryInfo[queryKey])).includes(false)
@@ -130,6 +134,9 @@ const updateTabsInternalIndex = (state, fromIndex) => {
   fromIndex = validateIndex(fromIndex)
   let tabsInternal = state.get('tabsInternal') || Immutable.Map()
   state.get('tabs').slice(fromIndex).forEach((tab, idx) => {
+    if (tab.isEmpty()) {
+      return
+    }
     const tabId = validateId('tabId', tab.get('tabId')).toString()
     if (tabId !== tabState.TAB_ID_NONE) {
       tabsInternal = tabsInternal.setIn(['index', tabId], (idx + fromIndex).toString())
@@ -171,7 +178,7 @@ const tabState = {
       return state
     }
     state = deleteTabsInternalIndex(state, tabValue)
-    state = state.set('tabs', state.get('tabs').delete(index))
+    state = state.setIn(['tabs', index], Immutable.Map())
     return updateTabsInternalIndex(state, index)
   },
 
@@ -208,12 +215,12 @@ const tabState = {
   getTabsByWindowId: (state, windowId) => {
     state = validateState(state)
     windowId = validateId('windowId', windowId)
-    return state.get('tabs').filter((tab) => tab.get('windowId') === windowId)
+    return selectTabs(state).filter((tab) => tab.get('windowId') === windowId)
   },
 
   getPinnedTabs: (state) => {
     state = validateState(state)
-    return state.get('tabs').filter((tab) => !!tab.get('pinned'))
+    return selectTabs(state).filter((tab) => !!tab.get('pinned'))
   },
 
   isTabPinned: (state, tabId) => {
@@ -225,7 +232,7 @@ const tabState = {
 
   getNonPinnedTabs: (state) => {
     state = validateState(state)
-    return state.get('tabs').filter((tab) => !tab.get('pinned'))
+    return selectTabs(state).filter((tab) => !tab.get('pinned'))
   },
 
   getPinnedTabsByWindowId: (state, windowId) => {
@@ -404,6 +411,31 @@ const tabState = {
     return state.set('tabs', tabs.delete(index).insert(index, tabValue))
   },
 
+  replaceTabValue: (state, tabId, newTabValue) => {
+    state = validateState(state)
+    newTabValue = makeImmutable(newTabValue)
+    // update tab
+    const index = getTabInternalIndexByTabId(state, tabId)
+    const oldTabValue = state.getIn(['tabs', index])
+    if (index == null || index === -1) {
+      console.error(`tabState: cannot replace tab ${tabId} as tab's index did not exist in state`, { index })
+      return state
+    }
+    let mergedTabValue = oldTabValue.mergeDeep(newTabValue)
+    if (mergedTabValue.has('frame')) {
+      mergedTabValue = mergedTabValue.mergeIn(['frame'], {
+        tabId: newTabValue.get('tabId'),
+        guestInstanceId: newTabValue.get('guestInstanceId')
+      })
+    }
+    mergedTabValue = mergedTabValue.set('windowId', oldTabValue.get('windowId'))
+    state = state.set('tabs', state.get('tabs').delete(index).insert(index, mergedTabValue))
+    // update tabId at tabsInternal index
+    state = deleteTabsInternalIndex(state, oldTabValue)
+    state = updateTabsInternalIndex(state, 0)
+    return state
+  },
+
   removeTabField: (state, field) => {
     state = makeImmutable(state)
 
@@ -417,23 +449,30 @@ const tabState = {
     return state.set('tabs', tabs)
   },
 
-  updateFrame: (state, action) => {
+  updateFrame: (state, action, shouldDebugTabEvents = false) => {
     state = validateState(state)
     action = validateAction(action)
     const tabId = action.getIn(['frame', 'tabId'])
+
     if (!tabId) {
+      if (shouldDebugTabEvents) {
+        console.log(`Tab [${tabId}] frame changed for tab - no tabId provided!`)
+      }
       return state
     }
 
     let tabValue = tabState.getByTabId(state, tabId)
     if (!tabValue) {
+      if (shouldDebugTabEvents) {
+        console.log(`Tab [${tabId}] frame changed for tab - tab not found in state, probably a temporary frame`)
+      }
       return state
     }
 
-    const bookmarkUtil = require('../lib/bookmarkUtil')
-    const frameLocation = action.getIn(['frame', 'location'])
-    const frameBookmarked = bookmarkUtil.isLocationBookmarked(state, frameLocation)
-    const frameValue = action.get('frame').set('bookmarked', frameBookmarked)
+    if (shouldDebugTabEvents) {
+      console.log(`Tab [${tabId}] frame changed for tab`)
+    }
+    const frameValue = action.get('frame')
     tabValue = tabValue.set('frame', makeImmutable(frameValue))
     return tabState.updateTabValue(state, tabValue)
   },
@@ -603,6 +642,21 @@ const tabState = {
     return path ? state.setIn(path.concat(['navigationState']), navigationState) : state
   },
 
+  setNavigationProgressPercent: (state, tabId, navigationProgressPercent) => {
+    const path = tabState.getPathByTabId(state, tabId)
+    if (path) {
+      state = state.setIn(path.concat(['navigationProgressPercent']), navigationProgressPercent)
+    }
+    return state
+  },
+
+  getNavigationProgressPercent: (state, tabId, navigationProgressPercent) => {
+    const path = tabState.getPathByTabId(state, tabId)
+    return path
+      ? state.getIn(path.concat(['navigationProgressPercent']), null)
+      : null
+  },
+
   getNavigationState: (state, tabId) => {
     const path = tabState.getPathByTabId(state, tabId)
     return path ? state.getIn(path.concat(['navigationState']), Immutable.Map()) : null
@@ -620,7 +674,8 @@ const tabState = {
 
   getVisibleOrigin: (state, tabId) => {
     const entry = tabState.getVisibleEntry(state, tabId)
-    const origin = entry ? entry.get('origin') : ''
+    // plain js in browser, immutable in renderer
+    const origin = entry ? entry.get ? entry.get('origin') : entry.origin : ''
     // TODO(bridiver) - all origins in browser-laptop should be changed to have a trailing slash to match chromium
     return (origin || '').replace(/\/$/, '')
   },
@@ -628,6 +683,35 @@ const tabState = {
   getVisibleVirtualURL: (state, tabId) => {
     const entry = tabState.getVisibleEntry(state, tabId)
     return entry ? entry.get('virtualURL') : ''
+  },
+
+  setTabStripWindowId: (state, tabId, windowId) => {
+    let path = tabState.getPathByTabId(state, tabId)
+    if (!path) {
+      console.error(`setTabStripWindowId: tab with ID ${tabId} not found!`)
+      return state
+    }
+    path = [...path, 'tabStripWindowId']
+    // handle clear window
+    if (windowId == null || windowId === -1) {
+      return state.deleteIn(path)
+    }
+    // handle set window
+    return state.setIn(path, windowId)
+  },
+
+  setZoomPercent: (state, tabId, zoomPercent) => {
+    let path = tabState.getPathByTabId(state, tabId)
+    if (!path) {
+      console.error(`setZoomPercent: tab with ID ${tabId} not found!`)
+      return state
+    }
+    if (typeof zoomPercent !== 'number') {
+      console.error(`setZoomPercent: bad value for zoomPercent: ${zoomPercent}`)
+      return state
+    }
+    path = [...path, 'zoomPercent']
+    return state.setIn(path, zoomPercent)
   }
 }
 

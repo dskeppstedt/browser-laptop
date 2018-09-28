@@ -156,7 +156,15 @@ describe('audioState unit tests', function () {
       const state = defaultState
         .setIn(['frames', index, 'audioPlaybackActive'], false)
         .setIn(['frames', index, 'audioMuted'], false)
-        .setIn(['ui', 'tabs', 'intersectionRatio'], intersection.at45)
+        .setIn(['ui', 'tabs', 'intersectionRatio'], intersection.at46)
+      const result = audioState.showAudioTopBorder(state, frameKey, false)
+      assert.equal(result, false)
+    })
+
+    it('return false if tab audio is mute and not pinned', function * () {
+      const state = defaultState
+        .setIn(['frames', index, 'audioPlayback'], true)
+        .setIn(['frames', index, 'audioMuted'], true)
       const result = audioState.showAudioTopBorder(state, frameKey, false)
       assert.equal(result, false)
     })

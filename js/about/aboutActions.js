@@ -103,6 +103,13 @@ const aboutActions = {
   },
 
   /**
+   * Dispatches a message to trigger a browser restart notification
+   */
+  requireRestart: function (key = null, value = null) {
+    ipc.send(messages.PREFS_RESTART, key, value)
+  },
+
+  /**
    * Dispatched when an extension has been uninstalled
    *
    * @param {string} extensionId - the extension id
@@ -192,6 +199,14 @@ const aboutActions = {
     e.preventDefault()
     e.stopPropagation()
     ipc.sendToHost(messages.CONTEXT_MENU_OPENED, nodeProps, contextMenuType)
+  },
+
+  /**
+   * Emitted when tor tab setting is changed
+   * @param {boolean} torEnabled - Whether tor is enabled for that tab
+   */
+  recreateTorTab: function (torEnabled) {
+    ipc.sendToHost(messages.RECREATE_TOR_TAB, torEnabled)
   },
 
   downloadRevealed: function (downloadId) {

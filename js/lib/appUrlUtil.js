@@ -6,6 +6,7 @@ const Immutable = require('immutable')
 const path = require('path')
 const UrlUtil = require('./urlutil')
 const config = require('../constants/config')
+const isDarwin = require('../../app/common/lib/platformUtil').isDarwin()
 
 module.exports.fileUrl = (filePath) => {
   // It's preferrable to call path.resolve but it's not available
@@ -62,6 +63,14 @@ module.exports.getExtensionsPath = function (extensionDir) {
     : path.join(__dirname, '..', '..', 'app', 'extensions', extensionDir)
 }
 
+module.exports.getComponentExtensionsPath = function (extensionDir) {
+  if (isDarwin) {
+    return path.join(process.resourcesPath, '../Frameworks/Brave Framework.framework/Resources/', extensionDir)
+  } else {
+    return path.join(process.resourcesPath, extensionDir)
+  }
+}
+
 module.exports.getGenDir = function (url) {
   const genDirRoots = [
     module.exports.getBraveIndexPath,
@@ -115,6 +124,7 @@ module.exports.aboutUrls = new Immutable.Map({
   'about:safebrowsing': module.exports.getBraveExtUrl('about-safebrowsing.html'),
   'about:styles': module.exports.getBraveExtUrl('about-styles.html'),
   'about:contributions': module.exports.getBraveExtUrl('about-contributions.html'),
+  'about:printkeys': module.exports.getBraveExtUrl('about-printkeys.html'),
   'about:welcome': module.exports.getBraveExtUrl('about-welcome.html')
 })
 

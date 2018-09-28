@@ -8,17 +8,21 @@ const settings = require('../../../js/constants/settings')
 // Utils
 const ledgerUtil = require('./ledgerUtil')
 const {getSetting} = require('../../../js/settings')
-const {isHttpOrHttps} = require('../../../js/lib/urlutil')
+const {isHttpOrHttps, getUrlFromPDFUrl} = require('../../../js/lib/urlutil')
 const {isSourceAboutUrl} = require('../../../js/lib/appUrlUtil')
 
-const publisherState = {
-  shouldShowAddPublisherButton: (state, location, publisherKey) => {
+const publisherUtil = {
+  shouldShowAddPublisherButton: () => {
+    return getSetting(settings.PAYMENTS_ENABLED)
+  },
+
+  shouldEnableAddPublisherButton: (state, location, publisherKey) => {
     return location &&
-      !isSourceAboutUrl(location) &&
-      getSetting(settings.PAYMENTS_ENABLED) &&
-      isHttpOrHttps(location) &&
-      !ledgerUtil.blockedP(state, publisherKey)
+    !isSourceAboutUrl(location) &&
+    getSetting(settings.PAYMENTS_ENABLED) &&
+    isHttpOrHttps(getUrlFromPDFUrl(location)) &&
+    !ledgerUtil.blockedP(state, publisherKey)
   }
 }
 
-module.exports = publisherState
+module.exports = publisherUtil

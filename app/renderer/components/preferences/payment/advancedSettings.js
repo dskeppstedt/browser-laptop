@@ -5,22 +5,26 @@
 const React = require('react')
 const {StyleSheet, css} = require('aphrodite/no-important')
 
-// util
-const {changeSetting} = require('../../../lib/settingsUtil')
-const appConfig = require('../../../../../js/constants/appConfig')
-
-// components
+// Components
 const BrowserButton = require('../../common/browserButton')
 const {SettingsList, SettingItem, SettingCheckbox} = require('../../common/settings')
 const {SettingDropdown} = require('../../common/dropdown')
 const ImmutableComponent = require('../../immutableComponent')
 
-// style
+// Actions
+const appActions = require('../../../../../js/actions/appActions')
+
+// Constants
+const appConfig = require('../../../../../js/constants/appConfig')
+const settings = require('../../../../../js/constants/settings')
+
+// Utils
+const {changeSetting} = require('../../../lib/settingsUtil')
+const locale = require('../../../../../js/l10n')
+
+// Style
 const commonStyles = require('../../styles/commonStyles')
 const globalStyles = require('../../styles/global')
-
-// other
-const settings = require('../../../../../js/constants/settings')
 
 class AdvancedSettingsContent extends ImmutableComponent {
   render () {
@@ -91,24 +95,58 @@ class AdvancedSettingsContent extends ImmutableComponent {
 }
 
 class AdvancedSettingsFooter extends ImmutableComponent {
+  showLedgerBackup () {
+    this.props.showOverlay('ledgerBackup')
+    this.props.setOverlayName('ledgerBackup')
+  }
+
+  showLedgerRecovery () {
+    this.props.showOverlay('ledgerRecovery')
+    this.props.setOverlayName('ledgerRecovery')
+  }
+
+  deleteWallet () {
+    const confMsg = locale.translation('paymentsDeleteWalletConfirmation')
+    if (window.confirm(confMsg)) {
+      this.props.hideOverlay('advancedSettings')
+      appActions.onWalletDelete()
+    }
+  }
+
   render () {
-    return <section>
-      <BrowserButton groupedItem primaryColor
-        l10nId='backupLedger'
-        testId='backupLedgerButton'
-        onClick={this.props.showOverlay.bind(this, 'ledgerBackup')}
-      />
-      <BrowserButton groupedItem primaryColor
-        l10nId='recoverLedger'
-        testId='recoverLedgerButton'
-        onClick={this.props.showOverlay.bind(this, 'ledgerRecovery')}
-      />
-      <BrowserButton groupedItem secondaryColor
-        l10nId='done'
-        testId='doneButton'
-        onClick={this.props.hideOverlay.bind(this, 'advancedSettings')}
-      />
-    </section>
+    return <div className={css(styles.footer__wrapper)}>
+      {
+        this.props.paymentInProgress
+        ? <div className={css(styles.footer__wrapper__left__footnote)}>
+          <span data-l10n-id='cannotDeleteWalletOnReconcile' className={css(styles.wallet__delete__footNote)}
+          />
+        </div>
+        : <div className={css(styles.footer__wrapper__left)}>
+          <BrowserButton groupedItem alertColor
+            l10nId='paymentsDeleteWallet'
+            testId='paymentsDeleteWallet'
+            onClick={this.deleteWallet.bind(this)}
+          />
+        </div>
+      }
+      <div>
+        <BrowserButton groupedItem primaryColor
+          l10nId='backupLedger'
+          testId='backupLedgerButton'
+          onClick={this.showLedgerBackup.bind(this)}
+        />
+        <BrowserButton groupedItem primaryColor
+          l10nId='recoverLedger'
+          testId='recoverLedgerButton'
+          onClick={this.showLedgerRecovery.bind(this)}
+        />
+        <BrowserButton groupedItem secondaryColor
+          l10nId='done'
+          testId='doneButton'
+          onClick={this.props.hideOverlay.bind(this, 'advancedSettings')}
+        />
+      </div>
+    </div>
   }
 }
 
@@ -134,6 +172,26 @@ const styles = StyleSheet.create({
 
   advancedSettings__switches__listItem__checkboxSwitch: {
     padding: 0
+  },
+
+  footer__wrapper: {
+    flex: 1,
+    display: 'flex'
+  },
+
+  footer__wrapper__left: {
+    flex: 1
+  },
+
+  footer__wrapper__left__footnote: {
+    marginRight: '30px',
+    flex: 1
+  },
+
+  wallet__delete__footNote: {
+    marginTop: '12px',
+    fontSize: '12px',
+    display: 'block'
   }
 })
 

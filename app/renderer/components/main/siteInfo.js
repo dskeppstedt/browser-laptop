@@ -9,7 +9,6 @@ const {StyleSheet, css} = require('aphrodite/no-important')
 // Components
 const ReduxComponent = require('../reduxComponent')
 const Dialog = require('../common/dialog')
-const FlyoutDialog = require('../common/flyoutDialog')
 const Button = require('../common/button')
 
 // Actions
@@ -29,6 +28,7 @@ const urlUtil = require('../../../../js/lib/urlutil')
 
 // Styles
 const globalStyles = require('../styles/global')
+const commonStyles = require('../styles/commonStyles')
 
 class SiteInfo extends React.Component {
   constructor (props) {
@@ -36,6 +36,7 @@ class SiteInfo extends React.Component {
     this.onAllowRunInsecureContent = this.onAllowRunInsecureContent.bind(this)
     this.onDenyRunInsecureContent = this.onDenyRunInsecureContent.bind(this)
     this.onViewCertificate = this.onViewCertificate.bind(this)
+    this.onDisableTor = this.onDisableTor.bind(this)
   }
 
   onAllowRunInsecureContent () {
@@ -61,7 +62,19 @@ class SiteInfo extends React.Component {
     windowActions.setSiteInfoVisible(false)
   }
 
+  onDisableTor () {
+    appActions.recreateTorTab(false, this.props.activeTabId,
+      this.props.activeTabIndex)
+  }
+
+  onRestartTor () {
+    appActions.restartTor()
+  }
+
   get secureIcon () {
+    if (this.props.torConnectionError) {
+      return <div className={css(styles.connectionInfo__header)} data-l10n-id='torConnectionError' />
+    }
     if (this.props.isFullySecured) {
       // fully secure
       return <div className={css(styles.secureIcon)}>
@@ -149,7 +162,25 @@ class SiteInfo extends React.Component {
       site: this.props.location
     }
 
-    if (this.props.maybePhishingLocation) {
+    if (this.props.torConnectionError) {
+      // Log the error for advanced users to debug
+      console.log('Tor connection error:', this.props.torConnectionError)
+      return <div>
+        <div className={css(styles.torBody)}>
+          <div className={css(styles.torConnectionInfo)} data-l10n-id='torConnectionErrorInfo' />
+          <Button
+            l10nId='torConnectionErrorRetry'
+            className='primaryButton'
+            onClick={this.onRestartTor}
+          />
+          <Button
+            l10nId='torConnectionErrorDisable'
+            className='whiteButton'
+            onClick={this.onDisableTor}
+          />
+        </div>
+      </div>
+    } else if (this.props.maybePhishingLocation) {
       return <div className={css(styles.connectionInfo)}>
         <div data-l10n-id='phishingConnectionInfo' data-test-id='phishingConnectionInfo' />
       </div>
@@ -232,21 +263,24 @@ class SiteInfo extends React.Component {
     props.secureConnection = isSecure === true
     props.partiallySecureConnection = isSecure === 1
     props.certErrorConnection = isSecure === 2
+    props.torConnectionError = frameStateUtil.isTor(activeFrame) && state.getIn(['tor', 'initializationError'])
 
     // used in other function
     props.isPrivate = activeFrame.get('isPrivate')
     props.activeTabId = activeFrame.get('tabId', tabState.TAB_ID_NONE)
+    props.activeTabIndex = frameStateUtil.getIndexByTabId(currentWindow, props.activeTabId)
 
     return props
   }
 
   render () {
     return <Dialog testId='siteInfoDialog' onHide={this.onHide} className='siteInfo' isClickDismiss>
-      <FlyoutDialog onClick={(e) => e.stopPropagation()}
-        custom={[
+      <div onClick={(e) => e.stopPropagation()}
+        className={css(
+          commonStyles.flyoutDialog,
           styles.siteInfo,
           (this.props.isBlockedRunInsecureContent || this.props.runInsecureContent) && styles.siteInfo_large
-        ]}>
+      )}>
         {
           this.secureIcon
         }
@@ -256,7 +290,7 @@ class SiteInfo extends React.Component {
         {
           this.connectionInfo
         }
-      </FlyoutDialog>
+      </div>
     </Dialog>
   }
 }
@@ -286,10 +320,25 @@ const styles = StyleSheet.create({
     margin: `${globalStyles.spacing.dialogInsideMargin} 0 0 ${globalStyles.spacing.dialogInsideMargin}`
   },
 
+  connectionInfo__header: {
+    color: globalStyles.color.braveOrange,
+    fontSize: '1rem'
+  },
+
   connectionInfo__viewCertificateButton: {
     display: 'flex',
     justifyContent: 'flex-end',
     marginTop: globalStyles.spacing.dialogInsideMargin
+  },
+
+  torConnectionInfo: {
+    marginTop: '15px',
+    marginBottom: '20px'
+  },
+
+  torBody: {
+    paddingBottom: '15px',
+    lineHeight: '1.5em'
   },
 
   siteInfo: {

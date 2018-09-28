@@ -19,16 +19,20 @@ const Immutable = require('immutable')
 const app = electron.app
 const compareVersions = require('compare-versions')
 const merge = require('deepmerge')
+const {execSync} = require('child_process')
 
 // Constants
 const UpdateStatus = require('../js/constants/updateStatus')
 const settings = require('../js/constants/settings')
 const siteTags = require('../js/constants/siteTags')
 const downloadStates = require('../js/constants/downloadStates')
+const ledgerStatuses = require('./common/constants/ledgerStatuses')
+const promotionStatuses = require('./common/constants/promotionStatuses')
 
 // State
 const tabState = require('./common/state/tabState')
 const windowState = require('./common/state/windowState')
+const ledgerState = require('./common/state/ledgerState')
 
 // Utils
 const locale = require('./locale')
@@ -231,10 +235,7 @@ module.exports.cleanPerWindowData = (immutablePerWindowData, isShutdown) => {
       // currently get re-generated when session store is
       // restored.  We will be able to keep this once we
       // don't regenerate new frame keys when opening storage.
-      'parentFrameKey',
-      // Delete the active shortcut details
-      'activeShortcut',
-      'activeShortcutDetails'
+      'parentFrameKey'
     ])
 
     if (immutableFrame.get('navbar') && immutableFrame.getIn(['navbar', 'urlbar'])) {
@@ -246,6 +247,7 @@ module.exports.cleanPerWindowData = (immutablePerWindowData, isShutdown) => {
     }
     return immutableFrame
   }
+
   const clearHistory = isShutdown && getSetting(settings.SHUTDOWN_CLEAR_HISTORY) === true
   if (clearHistory) {
     immutablePerWindowData = immutablePerWindowData.set('closedFrames', Immutable.List())
@@ -297,6 +299,8 @@ module.exports.cleanAppData = (immutableData, isShutdown) => {
   immutableData = immutableData.set('notifications', Immutable.List())
   // Delete temp site settings
   immutableData = immutableData.set('temporarySiteSettings', Immutable.Map())
+  // Delete Tor init state
+  immutableData = immutableData.set('tor', Immutable.Map())
 
   if (immutableData.getIn(['settings', settings.CHECK_DEFAULT_ON_STARTUP]) === true) {
     // Delete defaultBrowserCheckComplete state since this is checked on startup
@@ -328,6 +332,13 @@ module.exports.cleanAppData = (immutableData, isShutdown) => {
       console.error('cleanAppData: error calling autofill.clearAutocompleteData: ', e)
     }
   }
+
+  const clearSynopsis = isShutdown && getSetting(settings.SHUTDOWN_CLEAR_PUBLISHERS) === true
+  const inProgress = ledgerState.getAboutProp(immutableData, 'status') === ledgerStatuses.IN_PROGRESS
+  if (clearSynopsis && immutableData.has('ledger') && !inProgress) {
+    immutableData = ledgerState.resetPublishers(immutableData)
+  }
+
   const clearAutofillData = isShutdown && getSetting(settings.SHUTDOWN_CLEAR_AUTOFILL_DATA) === true
   if (clearAutofillData) {
     autofill.clearAutofillData()
@@ -405,6 +416,17 @@ module.exports.cleanAppData = (immutableData, isShutdown) => {
     }
   }
 
+  if (isShutdown) {
+    const status = ledgerState.getPromotionProp(immutableData, 'promotionStatus')
+    if (
+      status === promotionStatuses.CAPTCHA_CHECK ||
+      status === promotionStatuses.CAPTCHA_BLOCK ||
+      status === promotionStatuses.CAPTCHA_ERROR
+    ) {
+      immutableData = ledgerState.setPromotionProp(immutableData, 'promotionStatus', null)
+    }
+  }
+
   immutableData = immutableData.delete('menu')
   immutableData = immutableData.delete('pageData')
 
@@ -450,6 +472,11 @@ module.exports.cleanAppData = (immutableData, isShutdown) => {
     immutableData = cleanFavicons(basePath, immutableData)
   } catch (e) {
     console.error('cleanAppData: error cleaning up data: urls', e)
+  }
+
+  // delete the window ready state (gets set again on program start)
+  if (immutableData.has('windowReady')) {
+    immutableData = immutableData.delete('windowReady')
   }
 
   return immutableData
@@ -821,11 +848,61 @@ module.exports.runPreMigrations = (data) => {
     delete data.sites
   }
 
-  if (data.lastAppVersion) {
+  if (data.lastAppVersion || data.quarantineNeeded) {
+    // with version 0.22.13, any file downloaded (including the update itself) would get
+    // quarantined on macOS (per work done with https://github.com/brave/muon/pull/484)
+    // this functionality was then reverted with https://github.com/brave/muon/pull/570
+    //
+    // To fix the executable, we need to manually un-quarantine the Brave executable so that it works as expected
+    if (process.platform === 'darwin' && (compareVersions(data.lastAppVersion, '0.22.13') === 0 || data.quarantineNeeded)) {
+      const unQuarantine = (appPath) => {
+        try {
+          execSync(`xattr -d com.apple.quarantine "${appPath}" || true`)
+          console.log(`Quarantine attribute has been removed from ${appPath}`)
+        } catch (e) {
+          console.error(`Failed to remove quarantine attribute from ${appPath}: `, e)
+        }
+      }
+
+      console.log('Update was downloaded from 0.22.13' + data.quarantineNeeded ? ' (first launch after auto-update)' : '')
+
+      // Un-quarantine default path
+      const defaultAppPath = '/Applications/Brave.app'
+      unQuarantine(defaultAppPath)
+
+      // Un-quarantine custom path
+      const appPath = app.getPath('exe')
+      const appIndex = appPath.indexOf('.app') + '.app'.length
+      if (appPath && appIndex > 4) {
+        // Remove the `Contents`/`MacOS`/`Brave` parts from path
+        const runningAppPath = appPath.substring(0, appIndex)
+        if (runningAppPath.startsWith('/private/var/folders')) {
+          // This is true when Squirrel re-launches Brave after an auto-update
+          // File system is read-only; the xattr command would fail
+          data.quarantineNeeded = true
+        } else if (runningAppPath !== defaultAppPath) {
+          // Path is the installed location
+          unQuarantine(runningAppPath)
+          data.quarantineNeeded = false
+        }
+      }
+    }
+
+    let runHSTSCleanup = false
+    try { runHSTSCleanup = compareVersions(data.lastAppVersion, '0.22.13') < 1 } catch (e) {}
+
+    if (runHSTSCleanup) {
+      filtering.clearHSTSData()
+    }
+
     // Force WidevineCdm to be upgraded when last app version <= 0.18.25
     let runWidevineCleanup = false
+    let formatPublishers = false
 
-    try { runWidevineCleanup = compareVersions(data.lastAppVersion, '0.18.25') < 1 } catch (e) {}
+    try {
+      runWidevineCleanup = compareVersions(data.lastAppVersion, '0.18.25') < 1
+      formatPublishers = compareVersions(data.lastAppVersion, '0.22.3') < 1
+    } catch (e) {}
 
     if (runWidevineCleanup) {
       const fs = require('fs-extra')
@@ -837,6 +914,23 @@ module.exports.runPreMigrations = (data) => {
       })
     }
 
+    if (formatPublishers) {
+      const publishers = data.ledger.synopsis.publishers
+
+      if (publishers && Object.keys(publishers).length > 0) {
+        Object.entries(publishers).forEach((item) => {
+          const publisherKey = item[0]
+          const publisher = item[1]
+          const siteKey = `https?://${publisherKey}`
+          if (data.siteSettings[siteKey] == null || publisher.faviconName == null) {
+            return
+          }
+
+          data.siteSettings[siteKey].siteName = publisher.faviconName
+        })
+      }
+    }
+
     // Bookmark cache was generated wrongly on and before 0.20.25 from 0.19.x upgrades
     let runCacheClean = false
     try { runCacheClean = compareVersions(data.lastAppVersion, '0.20.25') < 1 } catch (e) {}
@@ -844,11 +938,17 @@ module.exports.runPreMigrations = (data) => {
       if (data.cache) {
         delete data.cache.bookmarkLocation
       }
+    }
 
-      // pinned top sites were stored in the wrong position in 0.19.x
-      // allowing duplicated items. See #12941
-      // in this case eliminate pinned items so they can be properly
-      // populated in their own indexes
+    // pinned top sites were stored in the wrong position in 0.19.x
+    // and on some updates ranging from 0.20.x/0.21.x
+    // allowing duplicated items. See #12941
+    let pinnedTopSitesCleanup = false
+    try {
+      pinnedTopSitesCleanup = compareVersions(data.lastAppVersion, '0.22.00') < 1
+    } catch (e) {}
+
+    if (pinnedTopSitesCleanup) {
       if (data.about.newtab.pinnedTopSites) {
         // Empty array is currently set to include default pinned sites
         // which we avoid given the user already have a profile
@@ -856,6 +956,11 @@ module.exports.runPreMigrations = (data) => {
       }
     }
   }
+
+  // TODO: consider moving all of the above logic into here
+  // see https://github.com/brave/browser-laptop/issues/10488
+  const runMigrations = require('./migrations/pre')
+  runMigrations(data)
 
   return data
 }
@@ -1032,6 +1137,7 @@ module.exports.defaultAppState = () => {
     passwords: [],
     notifications: [],
     temporarySiteSettings: {},
+    tor: {},
     autofill: {
       addresses: {
         guid: [],
@@ -1050,8 +1156,9 @@ module.exports.defaultAppState = () => {
         ignoredTopSites: [],
         pinnedTopSites: []
       },
+      preferences: {},
       welcome: {
-        showOnLoad: !['test', 'development'].includes(process.env.NODE_ENV)
+        showOnLoad: !['test', 'development'].includes(process.env.NODE_ENV) || process.env.BRAVE_SHOW_FIRST_RUN_WELCOME
       }
     },
     trackingProtection: {
@@ -1085,12 +1192,7 @@ module.exports.defaultAppState = () => {
       },
       promotion: {}
     },
-    migrations: {
-      batMercuryTimestamp: now,
-      btc2BatTimestamp: now,
-      btc2BatNotifiedTimestamp: now,
-      btc2BatTransitionPending: false
-    }
+    windowReady: false
   }
 }
 

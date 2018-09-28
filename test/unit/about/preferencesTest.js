@@ -33,8 +33,10 @@ describe('Preferences component unittest', function () {
     mockery.registerMock('../../../extensions/brave/img/preferences/browser_prefs_extensions.svg')
     mockery.registerMock('../../../extensions/brave/img/preferences/browser_prefs_plugins.svg', 'browser_prefs_plugins.svg')
     mockery.registerMock('../../../extensions/brave/img/preferences/browser_prefs_security.svg', 'browser_prefs_security.svg')
-    mockery.registerMock('../../../extensions/brave/img/preferences/browser_prefs_shields.svg', 'browser_prefs_shields.svg')
-    mockery.registerMock('../../../extensions/brave/img/preferences/browser_prefs_payments.svg', 'browser_prefs_payments.svg')
+    mockery.registerMock('../../../extensions/brave/img/preferences/browser_prefs_shields_on.svg', 'browser_prefs_shields_on.svg')
+    mockery.registerMock('../../../extensions/brave/img/preferences/browser_prefs_shields_off.svg', 'browser_prefs_shields_off.svg')
+    mockery.registerMock('../../../extensions/brave/img/preferences/browser_prefs_payments_on.svg', 'browser_prefs_payments_on.svg')
+    mockery.registerMock('../../../extensions/brave/img/preferences/browser_prefs_payments_off.svg', 'browser_prefs_payments_off.svg')
     mockery.registerMock('../../../extensions/brave/img/preferences/browser_prefs_sync.svg', 'browser_prefs_sync.svg')
     mockery.registerMock('../../../extensions/brave/img/preferences/browser_prefs_advanced.svg', 'browser_prefs_advanced.svg')
     mockery.registerMock('../../../extensions/brave/img/ledger/icon_settings.svg')
@@ -57,6 +59,8 @@ describe('Preferences component unittest', function () {
     // Mocks the icon used in payments tab
     mockery.registerMock('../../../extensions/brave/img/ledger/cryptoIcons/BAT_icon.svg')
     mockery.registerMock('../../../../../img/toolbar/stoploading_btn.svg')
+    mockery.registerMock('../../../../extensions/brave/img/ledger/BAT_captcha_dragicon.png')
+    mockery.registerMock('../../../../extensions/brave/img/ledger/BAT_captcha_BG_arrow.png')
     // Mocks the icons used in addFundsDialog and its steps
     mockery.registerMock('../../../../../../extensions/brave/img/ledger/wallet_icon.svg')
     mockery.registerMock('../../../../../../extensions/brave/img/ledger/cryptoIcons/ETH_icon.svg')

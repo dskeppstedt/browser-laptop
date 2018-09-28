@@ -5,6 +5,7 @@
 const Immutable = require('immutable')
 const assert = require('assert')
 const { makeImmutable, isMap } = require('./immutableUtil')
+const uuid = require('uuid')
 
 const validateState = function (state) {
   state = makeImmutable(state)
@@ -12,32 +13,37 @@ const validateState = function (state) {
   return state
 }
 
+let contextMenuDetail = Immutable.Map()
+
 const api = {
   setContextMenu: (windowState, detail) => {
     detail = makeImmutable(detail)
     windowState = validateState(windowState)
 
     if (!detail) {
-      if (windowState.getIn(['contextMenuDetail', 'type']) === 'hamburgerMenu') {
+      if (contextMenuDetail.get('type') === 'hamburgerMenu') {
         windowState = windowState.set('hamburgerMenuWasOpen', true)
       } else {
         windowState = windowState.set('hamburgerMenuWasOpen', false)
       }
+      contextMenuDetail = Immutable.Map()
       windowState = windowState.delete('contextMenuDetail')
     } else {
       if (!(detail.get('type') === 'hamburgerMenu' && windowState.get('hamburgerMenuWasOpen'))) {
-        windowState = windowState.set('contextMenuDetail', detail)
+        contextMenuDetail = detail
+        windowState = windowState.set('contextMenuDetail', uuid())
       }
       windowState = windowState.set('hamburgerMenuWasOpen', false)
     }
-
     return windowState
   },
 
   getContextMenu: (windowState) => {
     windowState = validateState(windowState)
-    return windowState.get('contextMenuDetail', Immutable.Map())
+    return contextMenuDetail
   },
+
+  isHamburgerMenuOpen: (windowState) => validateState(windowState).get('hamburgerMenuWasOpen'),
 
   selectedIndex: (windowState) => {
     const selectedIndex = windowState.getIn(['ui', 'contextMenu', 'selectedIndex'])

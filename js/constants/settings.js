@@ -23,6 +23,7 @@ const settings = {
   // Search tab
   DEFAULT_SEARCH_ENGINE: 'search.default-search-engine',
   USE_ALTERNATIVE_PRIVATE_SEARCH_ENGINE: 'search.use-alternate-private-search-engine',
+  USE_ALTERNATIVE_PRIVATE_SEARCH_ENGINE_TOR: 'search.use-alternate-private-search-engine-tor',
   OFFER_SEARCH_SUGGESTIONS: 'search.offer-search-suggestions',
   // Tabs tab
   SWITCH_TO_NEW_TABS: 'tabs.switch-to-new-tabs',
@@ -48,6 +49,7 @@ const settings = {
   SHUTDOWN_CLEAR_AUTOCOMPLETE_DATA: 'shutdown.clear-autocomplete-data',
   SHUTDOWN_CLEAR_AUTOFILL_DATA: 'shutdown.clear-autofill-data',
   SHUTDOWN_CLEAR_SITE_SETTINGS: 'shutdown.clear-site-settings',
+  SHUTDOWN_CLEAR_PUBLISHERS: 'shutdown.clear-publishers',
   FLASH_INSTALLED: 'security.flash.installed',
   FULLSCREEN_CONTENT: 'security.fullscreen.content',
   AUTOPLAY_MEDIA: 'security.autoplay.media',
@@ -83,6 +85,7 @@ const settings = {
   TOOLBAR_UI_SCALE: 'advanced.toolbar-ui-scale',
   SWIPE_NAV_DISTANCE: 'advanced.swipe-nav-distance',
   PAYMENTS_ALLOW_PROMOTIONS: 'advanced.payments-allow-promotions',
+  WEBRTC_POLICY: 'advanced.webrtc.policy',
   // Sync settings
   SYNC_ENABLED: 'sync.enabled',
   SYNC_DEVICE_NAME: 'sync.device-name',
@@ -99,6 +102,7 @@ const settings = {
   METAMASK_PROMPT_DISMISSED: 'extensions.metamask.promptDismissed',
   // Debug settings
   DEBUG_ALLOW_MANUAL_TAB_DISCARD: 'debug.manual-tab-discard.enabled',
+  DEBUG_VERBOSE_TAB_INFO: 'debug.verbose-tab-info.enabled',
 
   // DEPRECATED settings
   // DO NOT REMOVE OR CHANGE THESE VALUES

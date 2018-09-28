@@ -53,36 +53,6 @@ const windowActions = {
   },
 
   /**
-   * Dispatches a message to change the frame tabId
-   * @param {Object} frameProps - The frame properties
-   * @param {Number} oldTabId - the current tabId
-   * @param {Number} newTabId - the new tabId
-   */
-  frameTabIdChanged: function (frameProps, oldTabId, newTabId) {
-    dispatch({
-      actionType: windowConstants.WINDOW_FRAME_TAB_ID_CHANGED,
-      frameProps,
-      oldTabId,
-      newTabId
-    })
-  },
-
-  /**
-   * Dispatches a message when the guestInstanceId changes for a frame
-   * @param {Object} frameProps - The frame properties
-   * @param {Number} oldGuestInstanceId - the current guestInstanceId
-   * @param {Number} newGuestInstanceId - the new guestInstanceId
-   */
-  frameGuestInstanceIdChanged: function (frameProps, oldGuestInstanceId, newGuestInstanceId) {
-    dispatch({
-      actionType: windowConstants.WINDOW_FRAME_GUEST_INSTANCE_ID_CHANGED,
-      frameProps,
-      oldGuestInstanceId,
-      newGuestInstanceId
-    })
-  },
-
-  /**
    * Dispatches a message to set the frame error state
    * @param {Object} frameProps - The frame properties
    * @param {Object} errorDetails - The error properties
@@ -148,19 +118,11 @@ const windowActions = {
     })
   },
 
-  /**
-   * Dispatches a message to the store to indicate that the webview entered full screen mode.
-   *
-   * @param {Object} tabId - Tab id of the frame to put in full screen
-   * @param {boolean} isFullScreen - true if the webview is entering full screen mode.
-   * @param {boolean} showFullScreenWarning - true if a warning about entering full screen should be shown.
-   */
-  setFullScreen: function (tabId, isFullScreen, showFullScreenWarning) {
+  newFrame: function (frameOpts, tabValue) {
     dispatch({
-      actionType: windowConstants.WINDOW_SET_FULL_SCREEN,
-      tabId,
-      isFullScreen,
-      showFullScreenWarning
+      actionType: windowConstants.WINDOW_NEW_FRAME,
+      frameOpts,
+      tabValue
     })
   },
 
@@ -169,10 +131,10 @@ const windowActions = {
    *
    * @param {Object} frameKey - Frame key of the frame to close
    */
-  closeFrame: function (frameKey) {
+  removeFrame: function (tabId) {
     dispatch({
-      actionType: windowConstants.WINDOW_CLOSE_FRAME,
-      frameKey
+      actionType: windowConstants.WINDOW_REMOVE_FRAME,
+      tabId
     })
   },
 
@@ -290,10 +252,10 @@ const windowActions = {
    *
    * @param {number} frameProps - The frame props to center around
    */
-  setTabPageIndexByFrame: function (frameProps) {
+  setTabPageIndexByFrame: function (tabId) {
     dispatch({
       actionType: windowConstants.WINDOW_SET_TAB_PAGE_INDEX,
-      frameProps
+      tabId
     })
   },
 
@@ -436,23 +398,6 @@ const windowActions = {
   },
 
   /**
-   * Dispatches a message to the store to indicate that the pending frame shortcut info should be updated.
-   *
-   * @param {Object} frameProps - Properties of the frame in question
-   * @param {string} activeShortcut - The text for the new shortcut. Usually this is null to clear info which was previously
-   * set from an IPC call.
-   * @param {string} activeShortcutDetails - Parameters for the shortcut action
-   */
-  frameShortcutChanged: function (frameProps, activeShortcut, activeShortcutDetails) {
-    dispatch({
-      actionType: windowConstants.WINDOW_FRAME_SHORTCUT_CHANGED,
-      frameProps,
-      activeShortcut,
-      activeShortcutDetails
-    })
-  },
-
-  /**
    * Dispatches a message to set the find-in-page details.
    * @param {Object} frameKey - Frame key of the frame in question
    * @param {Object} findDetail - the find details
@@ -550,9 +495,16 @@ const windowActions = {
    * @param {Object} detail - The context menu detail
    */
   setContextMenuDetail: function (detail) {
+    // TODO(darkdh): This is a hack to prevent dispatch from serializing
+    // click function in template. `contextMenuDetail` is just a uuid to trigger
+    // state update for new menu
+    const Immutable = require('immutable')
+    const contextMenuState = require('../../app/common/state/contextMenuState')
+    let state = contextMenuState.setContextMenu(Immutable.Map(), detail)
+    const contextMenuDetail = state.get('contextMenuDetail')
     dispatch({
       actionType: windowConstants.WINDOW_SET_CONTEXT_MENU_DETAIL,
-      detail
+      contextMenuDetail
     })
   },
 
@@ -624,21 +576,6 @@ const windowActions = {
       actionType: windowConstants.WINDOW_SET_FAVICON,
       frameProps,
       favicon
-    })
-  },
-
-  /**
-   * Dispatches a message to store the last zoom percentage.
-   * This is mainly just used to trigger updates throughout React.
-   *
-   * @param {object} frameProps - The frame to set blocked info on
-   * @param {number} percentage - The new zoom percentage
-   */
-  setLastZoomPercentage: function (frameProps, percentage) {
-    dispatch({
-      actionType: windowConstants.WINDOW_SET_LAST_ZOOM_PERCENTAGE,
-      frameProps,
-      percentage
     })
   },
 
@@ -956,20 +893,6 @@ const windowActions = {
   },
 
   /**
-   * Used to get response details (such as the HTTP response code) from a response
-   * See `eventStore.js` for an example use-case
-   * @param {number} tabId - the tab id to set
-   * @param {Object} details - object containing response details
-   */
-  gotResponseDetails: function (tabId, details) {
-    dispatch({
-      actionType: windowConstants.WINDOW_GOT_RESPONSE_DETAILS,
-      tabId,
-      details
-    })
-  },
-
-  /**
    * Fired when the mouse clicks or hovers over a bookmark folder in the bookmarks toolbar
    * @param {number} folderId - from the siteDetail for the bookmark folder
    *   If set to null, no menu is open. If set to -1, mouse is over a bookmark, not a folder
@@ -1109,15 +1032,6 @@ const windowActions = {
       top,
       partition,
       tabId
-    })
-  },
-
-  onCertError: function (tabId, url, error) {
-    dispatch({
-      actionType: windowConstants.WINDOW_ON_CERT_ERROR,
-      tabId,
-      url,
-      error
     })
   },
 

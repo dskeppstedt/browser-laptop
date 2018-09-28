@@ -25,8 +25,9 @@ const browserWindowUtil = require('../common/lib/browserWindowUtil')
 const windowState = require('../common/state/windowState')
 const pinnedSitesState = require('../common/state/pinnedSitesState')
 const {zoomLevel} = require('../common/constants/toolbarUserInterfaceScale')
-const { shouldDebugWindowEvents } = require('../cmdLine')
+const { shouldDebugWindowEvents, shouldDebugTabEvents, shouldDebugStoreActions, disableBufferWindow, disableDeferredWindowLoad } = require('../cmdLine')
 const activeTabHistory = require('./activeTabHistory')
+const webContentsCache = require('./webContentsCache')
 
 const isDarwin = platformUtil.isDarwin()
 const isWindows = platformUtil.isWindows()
@@ -125,7 +126,10 @@ const updatePinnedTabs = (win, appState) => {
   // tabs are sites our window already has pinned
   // for each site which should be pinned, find if it's already pinned
   const statePinnedSitesOrdered = statePinnedSites.sort((a, b) => a.get('order') - b.get('order'))
+  // pinned sites should always be at the front of the window tab indexes, starting with 0
+  let pinnedSiteIndex = -1
   for (const site of statePinnedSitesOrdered.values()) {
+    pinnedSiteIndex++
     const existingPinnedTabIdx = pinnedWindowTabs.findIndex(tab => siteMatchesTab(site, tab))
     if (existingPinnedTabIdx !== -1) {
       // if it's already pinned we don't need to consider the tab in further searches
@@ -135,6 +139,7 @@ const updatePinnedTabs = (win, appState) => {
       appActions.createTabRequested({
         url: site.get('location'),
         partitionNumber: site.get('partitionNumber'),
+        index: pinnedSiteIndex,
         pinned: true,
         active: false,
         windowId
@@ -147,30 +152,32 @@ const updatePinnedTabs = (win, appState) => {
   }
 }
 
-function refocusFocusedWindow () {
-  const focusedWindow = BrowserWindow.getFocusedWindow()
-  if (focusedWindow) {
+function refocusFocusedWindow (win) {
+  if (win && !win.isDestroyed()) {
     if (shouldDebugWindowEvents) {
-      console.log('focusing on window', focusedWindow.id)
+      console.log('focusing on window', win.id)
     }
-    focusedWindow.focus()
+    win.focus()
   }
 }
 
 function showDeferredShowWindow (win) {
   // were we asked to make the window active / foreground?
-  const shouldShowInactive = win.webContents.browserWindowOptions.inactive
+  // note: do not call win.showInactive if there is no other active window, otherwise this window will
+  // never get an entry in taskbar on Windows
+  const currentlyFocused = BrowserWindow.getFocusedWindow()
+  const shouldShowInactive = win.webContents.browserWindowOptions.inactive && currentlyFocused
   if (shouldShowInactive) {
     // we were asked NOT to show the window active.
     // we should maintain focus on the window which already has it
     if (shouldDebugWindowEvents) {
       console.log('showing deferred window inactive', win.id)
     }
-    win.showInactive()
+    win.show()
     // Whilst the window will not have focus, it will potentially be
     // on top of the window which already had focus,
     // so re-focus the focused window.
-    setImmediate(refocusFocusedWindow)
+    setImmediate(refocusFocusedWindow.bind(null, currentlyFocused))
   } else {
     // we were asked to show the window active
     if (shouldDebugWindowEvents) {
@@ -187,7 +194,7 @@ function showDeferredShowWindow (win) {
     setTimeout(() => {
       win.setFullScreen(true)
       if (shouldShowInactive) {
-        setImmediate(refocusFocusedWindow)
+        setImmediate(refocusFocusedWindow.bind(null, currentlyFocused))
       }
     }, 100)
   } else if (win.__shouldMaximize) {
@@ -204,14 +211,22 @@ function openFramesInWindow (win, frames, activeFrameKey) {
     let frameIndex = -1
     for (const frame of frames) {
       frameIndex++
-      if (frame.guestInstanceId) {
-        appActions.newWebContentsAdded(win.id, frame)
+      const tab = webContentsCache.getWebContents(frame.tabId)
+      if (frame.tabId != null && frame.guestInstanceId != null) {
+        if (shouldDebugTabEvents) {
+          console.log('notifyWindowWebContentsAdded: on window create with existing tab', win.id)
+        }
+        api.notifyWindowWebContentsAdded(win.id, frame)
+        if (tab && !tab.isDestroyed()) {
+          tab.moveTo(frameIndex, win.id)
+        }
       } else {
         appActions.createTabRequested({
           windowId: win.id,
           url: frame.location || frame.src || frame.provisionalLocation || frame.url,
           partitionNumber: frame.partitionNumber,
           isPrivate: frame.isPrivate,
+          isTor: frame.isTor || (tab && tab.session && tab.session.partition === appConfig.tor.partition),
           active: activeFrameKey ? frame.key === activeFrameKey : true,
           discarded: frame.unloaded,
           title: frame.title,
@@ -270,6 +285,30 @@ const api = {
 
         win.once('close', () => {
           LocalShortcuts.unregister(win)
+        })
+        win.webContents.on('tab-inserted-at', (e, contents, index, active) => {
+          const tabId = contents.getId()
+          appActions.tabInsertedToTabStrip(win.id, tabId, index)
+          if (shouldDebugWindowEvents) {
+            console.log(`window ${win.id} had ${!active ? 'in' : ''}active tab ${tabId} inserted at index ${index}`)
+          }
+        })
+        win.webContents.on('tab-detached-at', (e, index, windowId) => {
+          appActions.tabDetachedFromTabStrip(windowId, index)
+          if (shouldDebugWindowEvents) {
+            console.log(`window ${win.id} had tab at removed at index ${index}`)
+          }
+        })
+        win.webContents.on('tab-strip-empty', () => {
+          // must wait for pending tabs to be attached to new window before closing
+          // TODO(petemill): race condition if multiple different tabs are moved at the same time
+          // ...tab-strip-empty may fire before all of those tabs are inserted to new window
+          win.webContents.once('detached-tab-new-window', () => {
+            if (shouldDebugWindowEvents) {
+              console.log('departing tab made it to new window')
+            }
+            api.closeWindow(win.id)
+          })
         })
         win.on('scroll-touch-begin', function (e) {
           win.webContents.send('scroll-touch-begin')
@@ -334,6 +373,19 @@ const api = {
       win.once('closed', () => {
         appActions.windowClosed(windowId)
         cleanupWindow(windowId)
+        // if we have a bufferWindow, the 'window-all-closed'
+        // event will not fire once the last window is closed,
+        // so close the buffer window if this is the last closed window
+        // apart from the buffer window.
+        // This would mean that the last window to close is the buffer window, but
+        // that will not get saved to state as the last-closed window which should be restored
+        // since we won't save state if there are no frames.
+        if (!platformUtil.isDarwin() && api.getBufferWindow()) {
+          const remainingWindows = api.getAllRendererWindows()
+          if (!remainingWindows.length) {
+            api.closeBufferWindow()
+          }
+        }
       })
       win.on('blur', () => {
         appActions.windowBlurred(windowId)
@@ -430,6 +482,18 @@ const api = {
     })
   },
 
+  focus: (windowId) => {
+    setImmediate(() => {
+      const win = currentWindows[windowId]
+      if (win && !win.isDestroyed()) {
+        if (win.isMinimized()) {
+          win.restore()
+        }
+        win.focus()
+      }
+    })
+  },
+
   setFullScreen: (windowId, fullScreen) => {
     setImmediate(() => {
       const win = currentWindows[windowId]
@@ -473,6 +537,9 @@ const api = {
     renderedWindows.add(win)
     setImmediate(() => {
       if (win && win.__showWhenRendered && !win.isDestroyed() && !win.isVisible()) {
+        if (shouldDebugWindowEvents) {
+          console.log('rendered window so showing window')
+        }
         // window is hidden by default until we receive 'ready' message,
         // so show it now
         showDeferredShowWindow(win)
@@ -550,6 +617,12 @@ const api = {
   },
 
   getOrCreateBufferWindow: function (options = { }) {
+    if (disableBufferWindow) {
+      if (shouldDebugWindowEvents) {
+        console.log(`getOrCreateBufferWindow: buffer window disabled, not creating one.`)
+      }
+      return
+    }
     // only if we don't have one already
     let win = api.getBufferWindow()
     if (!win) {
@@ -568,6 +641,9 @@ const api = {
   },
 
   createWindow: function (windowOptionsIn, parentWindow, maximized, frames, immutableState = Immutable.Map(), hideUntilRendered = true, cb = null) {
+    if (disableDeferredWindowLoad) {
+      hideUntilRendered = false
+    }
     const defaultOptions = {
       // hide the window until the window reports that it is rendered
       show: true,
@@ -591,6 +667,16 @@ const api = {
       defaultOptions,
       windowOptionsIn
     )
+    // validate activeFrameKey if provided
+    let activeFrameKey = immutableState.get('activeFrameKey')
+    if (frames && frames.length && activeFrameKey) {
+      const keyIsValid = frames.some(frame => frame.key === activeFrameKey)
+      if (!keyIsValid) {
+        // make first frame active if invalid key provided
+        activeFrameKey = frames[0].key
+      }
+      immutableState = immutableState.set('activeFrameKey', activeFrameKey)
+    }
     // will only hide until rendered if the options specify to show window
     // so that a caller can control showing the window themselves with the option { show: false }
     const showWhenRendered = hideUntilRendered && windowOptions.show
@@ -679,6 +765,7 @@ const api = {
 
     if (shouldDebugWindowEvents) {
       markWindowCreationTime(win.id)
+      console.log(`createWindow: new BrowserWindow with ID ${win.id} created with options`, windowOptions)
     }
     // TODO: pass UUID
     publicEvents.emit('new-window-state', win.id, immutableState)
@@ -694,6 +781,9 @@ const api = {
       // in those cases, we want to still show it, so that the user can find the error message
       setTimeout(() => {
         if (win && !win.isDestroyed() && !win.isVisible()) {
+          if (shouldDebugWindowEvents) {
+            console.log('deferred-show window passed timeout, so showing deferred')
+          }
           showDeferredShowWindow(win)
         }
       }, config.windows.timeoutToShowWindowMs)
@@ -718,7 +808,11 @@ const api = {
 
       const position = win.getPosition()
       const size = win.getSize()
-      const windowState = (immutableState && immutableState.toJS()) || undefined
+
+      const windowState = (immutableState && immutableState.toJS()) || { }
+      windowState.debugTabEvents = shouldDebugTabEvents
+      windowState.debugStoreActions = shouldDebugStoreActions
+
       const mem = muon.shared_memory.create({
         windowValue: {
           disposition: windowOptions.disposition,
@@ -730,13 +824,10 @@ const api = {
           width: size[0]
         },
         appState: appStore.getLastEmittedState().toJS(),
-        windowState,
-        // TODO: dispatch frame create action on appStore, as this is what the window does anyway
-        // ...and do it after the window has rendered
-        frames
+        windowState
       })
-
       e.sender.sendShared(messages.INITIALIZE_WINDOW, mem)
+      openFramesInWindow(win, frames, windowState && windowState.activeFrameKey)
       // TODO: remove callback, use store action, returning a new window UUID from this function
       if (cb) {
         cb()
@@ -749,21 +840,51 @@ const api = {
     return currentWindows[windowId]
   },
 
-  getActiveWindowId: () => {
-    if (BrowserWindow.getFocusedWindow()) {
-      return BrowserWindow.getFocusedWindow().id
+  getActiveWindow: () => {
+    const focusedWindow = BrowserWindow.getFocusedWindow()
+    const allOpenWindows = api.getAllRendererWindows()
+    if (allOpenWindows.includes(focusedWindow)) {
+      return focusedWindow
     }
-    return windowState.WINDOW_ID_NONE
+    // handle no active window, but do have open windows
+    if (allOpenWindows && allOpenWindows.length) {
+      // use first window
+      return allOpenWindows[0]
+    }
+    // no open windows
+    return null
+  },
+
+  getActiveWindowId: () => {
+    const activeWindow = api.getActiveWindow()
+    return activeWindow ? activeWindow.id : windowState.WINDOW_ID_NONE
   },
 
   /**
    * Provides an array of all Browser Windows which are actual
    * main windows (not background workers), and are not destroyed
    */
-  getAllRendererWindows: () => {
+  getAllRendererWindows: (includingBufferWindow = false) => {
     return Object.keys(currentWindows)
       .map(key => currentWindows[key])
-      .filter(win => win && !win.isDestroyed())
+      .filter(win =>
+        win &&
+        !win.isDestroyed() &&
+        (includingBufferWindow || win !== api.getBufferWindow())
+      )
+  },
+
+  notifyWindowWebContentsAdded (windowId, frame, tabValue) {
+    const win = api.getWindow(windowId)
+    if (!win || win.isDestroyed()) {
+      console.error(`notifyWindowWebContentsAdded, no window for id ${windowId}`)
+      return
+    }
+    if (!win.webContents || win.webContents.isDestroyed()) {
+      console.error(`notifyWindowWebContentsAdded, no window webContents for id ${windowId}`)
+      return
+    }
+    win.webContents.send('new-web-contents-added', frame, tabValue)
   },
 
   on: (...args) => publicEvents.on(...args),

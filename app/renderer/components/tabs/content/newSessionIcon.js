@@ -4,7 +4,7 @@
 
 const React = require('react')
 const ReactDOM = require('react-dom')
-const {StyleSheet} = require('aphrodite/no-important')
+const {StyleSheet, css} = require('aphrodite/no-important')
 
 // Components
 const ReduxComponent = require('../../reduxComponent')
@@ -19,6 +19,8 @@ const frameStateUtil = require('../../../../../js/state/frameStateUtil')
 // Styles
 const globalStyles = require('../../styles/global')
 const {opacityIncreaseElementKeyframes} = require('../../styles/animations')
+const {theme} = require('../../styles/theme')
+require('../../../../../fonts/poppins.css')
 
 const newSessionSvg = require('../../../../extensions/brave/img/tabs/new_session.svg')
 
@@ -66,8 +68,8 @@ class NewSessionIcon extends React.Component {
     )
     if (shouldTransitionIn) {
       this.element.animate(opacityIncreaseElementKeyframes, {
-        duration: 200,
-        easing: 'linear'
+        duration: 120,
+        easing: 'ease-out'
       })
     }
   }
@@ -85,21 +87,18 @@ class NewSessionIcon extends React.Component {
       return null
     }
 
-    const newSessionProps = StyleSheet.create({
-      newSession__indicator: {
-        filter: this.props.isActive && this.props.textIsWhite
-          ? 'invert(100%)'
-          : 'none'
-      }
-    })
+    const sessionName = <div className={css(styles.icon_newSession__name)}>
+      { this.props.partitionNumber }
+    </div>
 
-    return <TabIcon symbol
+    return <TabIcon
       data-test-id='newSessionIcon'
       className={[
         styles.icon_newSession,
-        newSessionProps.newSession__indicator
+        this.props.isActive && this.props.textIsWhite && styles.icon_newSession_active_light
       ]}
-      symbolContent={this.props.partitionNumber}
+      symbolContent={sessionName}
+      symbol={css(styles.icon__symbol)}
       l10nArgs={{partitionNumber: this.props.partitionNumber}}
       l10nId='sessionInfoTab'
       ref={this.setRef}
@@ -115,6 +114,21 @@ const styles = StyleSheet.create({
 
     // Override default properties
     backgroundSize: globalStyles.spacing.newSessionIconSize
+  },
+
+  icon_newSession_active_light: {
+    filter: 'invert(100%)'
+  },
+
+  icon__symbol: {
+    marginLeft: '4px',
+    justifyContent: 'flex-end'
+  },
+
+  icon_newSession__name: {
+    marginLeft: '6px',
+    font: '600 9px/0 Poppins, sans-serif',
+    color: theme.tab.icon.symbol.color
   }
 })
 

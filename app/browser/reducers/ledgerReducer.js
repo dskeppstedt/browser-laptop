@@ -4,22 +4,27 @@
 
 const Immutable = require('immutable')
 const {BrowserWindow} = require('electron')
+const {getWebContents} = require('../webContentsCache')
 
 // Constants
 const appConstants = require('../../../js/constants/appConstants')
 const windowConstants = require('../../../js/constants/windowConstants')
 const settings = require('../../../js/constants/settings')
+const tabActionConstants = require('../../common/constants/tabAction')
+const ledgerStatuses = require('../../common/constants/ledgerStatuses')
 
 // State
 const ledgerState = require('../../common/state/ledgerState')
 const pageDataState = require('../../common/state/pageDataState')
-const migrationState = require('../../common/state/migrationState')
 const updateState = require('../../common/state/updateState')
+const aboutPreferencesState = require('../../common/state/aboutPreferencesState')
+const tabState = require('../../common/state/tabState')
 
 // Utils
+const windows = require('../windows')
 const ledgerApi = require('../../browser/api/ledger')
 const ledgerNotifications = require('../../browser/api/ledgerNotifications')
-const {makeImmutable} = require('../../common/state/immutableUtil')
+const {makeImmutable, makeJS} = require('../../common/state/immutableUtil')
 const getSetting = require('../../../js/settings').getSetting
 
 const ledgerReducer = (state, action, immutableAction) => {
@@ -43,16 +48,24 @@ const ledgerReducer = (state, action, immutableAction) => {
       }
     case appConstants.APP_BACKUP_KEYS:
       {
-        ledgerApi.backupKeys(state, action.get('backupAction'))
+        state = ledgerApi.backupKeys(state, action.get('backupAction'))
         break
       }
     case appConstants.APP_RECOVER_WALLET:
       {
-        state = ledgerApi.recoverKeys(
-          state,
-          action.get('useRecoveryKeyFile'),
-          action.get('recoveryKey')
-        )
+        const recoveryKey = action.get('recoveryKey')
+        const useRecoveryKeyFile = action.get('useRecoveryKeyFile')
+
+        if (!useRecoveryKeyFile) {
+          state = aboutPreferencesState.setRecoveryInProgress(state, true)
+        }
+
+        state = ledgerApi.recoverKeys(state, useRecoveryKeyFile, recoveryKey)
+        break
+      }
+    case appConstants.APP_ON_FILE_RECOVERY_KEYS:
+      {
+        state = ledgerApi.fileRecoveryKeys(state, action.get('file'))
         break
       }
     case appConstants.APP_SHUTTING_DOWN:
@@ -62,12 +75,15 @@ const ledgerReducer = (state, action, immutableAction) => {
       }
     case appConstants.APP_ON_CLEAR_BROWSING_DATA:
       {
-        const defaults = state.get('clearBrowsingDataDefaults')
+        const defaults = state.get('clearBrowsingDataDefaults') || Immutable.Map()
         const temp = state.get('tempClearBrowsingData', Immutable.Map())
         const clearData = defaults ? defaults.merge(temp) : temp
-        if (clearData.get('browserHistory') && !getSetting(settings.PAYMENTS_ENABLED)) {
-          state = ledgerState.resetSynopsis(state)
-          ledgerApi.deleteSynopsis()
+        if (clearData.get('publishersClear')) {
+          state = ledgerApi.resetPublishers(state)
+        }
+
+        if (clearData.get('paymentHistory')) {
+          state = ledgerApi.clearPaymentHistory(state)
         }
         break
       }
@@ -146,19 +162,37 @@ const ledgerReducer = (state, action, immutableAction) => {
               state = ledgerApi.verifiedP(state, publisherKey)
               break
             }
-          case 'ledgerPinPercentage':
-            {
-              const value = action.get('value')
-              const publisher = ledgerState.getPublisher(state, publisherKey)
-              if (publisher.isEmpty() || publisher.get('pinPercentage') === value) {
-                break
-              }
-              state = ledgerState.setPublishersProp(state, publisherKey, 'pinPercentage', value)
-              ledgerApi.savePublisherData(publisherKey, 'pinPercentage', value)
-              state = ledgerApi.updatePublisherInfo(state, publisherKey)
-              break
-            }
         }
+        break
+      }
+    case appConstants.APP_ON_LEDGER_PIN_PUBLISHER:
+      {
+        const value = action.get('value')
+        const publisherKey = action.get('publisherKey')
+        const publisher = ledgerState.getPublisher(state, publisherKey)
+
+        if (publisher.isEmpty() || publisher.get('pinPercentage') === value) {
+          break
+        }
+
+        state = ledgerState.setPublishersProp(state, publisherKey, 'pinPercentage', value)
+        ledgerApi.savePublisherData(publisherKey, 'pinPercentage', value)
+        state = ledgerApi.updatePublisherInfo(state, publisherKey)
+        break
+      }
+    case appConstants.APP_ADD_PUBLISHER_TO_LEDGER:
+      {
+        const tabId = action.get('tabId')
+        const location = action.get('location')
+
+        if (!location) {
+          break
+        }
+
+        const passedTabId = tabId || tabState.TAB_ID_NONE
+
+        state = ledgerApi.addNewLocation(state, location, passedTabId, false, true)
+        state = ledgerApi.pageDataChanged(state, {}, true)
         break
       }
     case appConstants.APP_REMOVE_SITE_SETTING:
@@ -201,7 +235,7 @@ const ledgerReducer = (state, action, immutableAction) => {
       }
     case appConstants.APP_ON_FAVICON_RECEIVED:
       {
-        state = ledgerState.setPublishersProp(state, action.get('publisherKey'), 'faviconURL', action.get('blob'))
+        state = ledgerApi.onFavIconReceived(state, action.get('publisherKey'), action.get('blob'))
         state = ledgerApi.updatePublisherInfo(state)
         break
       }
@@ -222,13 +256,14 @@ const ledgerReducer = (state, action, immutableAction) => {
         state = ledgerState.setPublisherOption(state, key, prop, value)
         break
       }
+    case appConstants.APP_ON_PUBLISHERS_OPTION_UPDATE:
+      {
+        state = ledgerApi.setPublishersOptions(state, action.get('publishersArray'))
+        break
+      }
     case appConstants.APP_ON_LEDGER_WALLET_CREATE:
       {
         ledgerApi.boot()
-        if (ledgerApi.getNewClient() === null) {
-          state = migrationState.setConversionTimestamp(state, new Date().getTime())
-          state = migrationState.setTransitionStatus(state, false)
-        }
         break
       }
     case appConstants.APP_ON_BOOT_STATE_FILE:
@@ -243,7 +278,7 @@ const ledgerReducer = (state, action, immutableAction) => {
       }
     case appConstants.APP_LEDGER_PAYMENTS_PRESENT:
       {
-        ledgerApi.paymentPresent(state, action.get('tabId'), action.get('present'))
+        state = ledgerApi.paymentPresent(state, action.get('tabId'), action.get('present'))
         break
       }
     case appConstants.APP_ON_ADD_FUNDS_CLOSED:
@@ -293,29 +328,13 @@ const ledgerReducer = (state, action, immutableAction) => {
       }
     case appConstants.APP_ON_RESET_RECOVERY_STATUS:
       {
-        state = ledgerState.setRecoveryStatus(state, null)
+        state = aboutPreferencesState.setRecoveryStatus(state, null)
         state = ledgerState.setInfoProp(state, 'error', null)
         break
       }
     case appConstants.APP_ON_LEDGER_INIT_READ:
       {
         state = ledgerApi.onInitRead(state, action.parsedData)
-        break
-      }
-    case appConstants.APP_ON_BTC_TO_BAT_NOTIFIED:
-      {
-        state = migrationState.setNotifiedTimestamp(state, new Date().getTime())
-        break
-      }
-    case appConstants.APP_ON_BTC_TO_BAT_BEGIN_TRANSITION:
-      {
-        state = migrationState.setTransitionStatus(state, true)
-        break
-      }
-    case appConstants.APP_ON_BTC_TO_BAT_TRANSITIONED:
-      {
-        state = migrationState.setConversionTimestamp(state, new Date().getTime())
-        state = migrationState.setTransitionStatus(state, false)
         break
       }
     case appConstants.APP_ON_LEDGER_QR_GENERATED:
@@ -380,22 +399,20 @@ const ledgerReducer = (state, action, immutableAction) => {
         state = ledgerApi.pageDataChanged(state)
         break
       }
-    case windowConstants.WINDOW_GOT_RESPONSE_DETAILS:
+    case tabActionConstants.FINISH_NAVIGATION:
       {
         if (!getSetting(settings.PAYMENTS_ENABLED)) {
           break
         }
 
-        // Only capture response for the page (not sub resources, like images, JavaScript, etc)
-        if (action.getIn(['details', 'resourceType']) === 'mainFrame') {
-          const pageUrl = action.getIn(['details', 'newURL'])
-
-          // create a page view event if this is a page load on the active tabId
-          const lastActiveTabId = pageDataState.getLastActiveTabId(state)
-          const tabId = action.get('tabId')
+        // create a page view event if this is a page load on the active tabId
+        const lastActiveTabId = pageDataState.getLastActiveTabId(state)
+        const tabId = action.get('tabId')
+        const tab = getWebContents(tabId)
+        if (tab && !tab.isDestroyed()) {
           if (!lastActiveTabId || tabId === lastActiveTabId) {
             state = ledgerApi.pageDataChanged(state, {
-              location: pageUrl,
+              location: tab.getURL(),
               tabId
             })
           }
@@ -417,9 +434,24 @@ const ledgerReducer = (state, action, immutableAction) => {
         state = ledgerNotifications.onPromotionReceived(state)
         break
       }
+    case appConstants.APP_ON_PROMOTION_CLICK:
+      {
+        ledgerApi.getCaptcha(state)
+        break
+      }
+    case appConstants.APP_ON_CAPTCHA_RESPONSE:
+      {
+        state = ledgerApi.onCaptchaResponse(state, action.get('response'), action.get('body'))
+        break
+      }
+    case appConstants.APP_ON_CAPTCHA_CLOSE:
+      {
+        state = ledgerState.setPromotionProp(state, 'promotionStatus', null)
+        break
+      }
     case appConstants.APP_ON_PROMOTION_CLAIM:
       {
-        ledgerApi.claimPromotion(state)
+        ledgerApi.claimPromotion(state, action.get('x'), action.get('y'))
         break
       }
     case appConstants.APP_ON_PROMOTION_REMIND:
@@ -429,7 +461,7 @@ const ledgerReducer = (state, action, immutableAction) => {
       }
     case appConstants.APP_ON_LEDGER_MEDIA_DATA:
       {
-        state = ledgerApi.onMediaRequest(state, action.get('url'), action.get('type'), action.get('tabId'))
+        state = ledgerApi.onMediaRequest(state, action.get('url'), action.get('type'), action.get('details'))
         break
       }
     case appConstants.APP_ON_PRUNE_SYNOPSIS:
@@ -471,8 +503,7 @@ const ledgerReducer = (state, action, immutableAction) => {
       }
     case appConstants.APP_ON_REFERRAL_CODE_READ:
       {
-        state = updateState.setUpdateProp(state, 'referralDownloadId', action.get('downloadId'))
-        state = updateState.setUpdateProp(state, 'referralPromoCode', action.get('promoCode'))
+        state = ledgerApi.onReferralRead(state, action.get('body'), windows.getActiveWindowId())
         break
       }
     case appConstants.APP_ON_REFERRAL_CODE_FAIL:
@@ -483,6 +514,26 @@ const ledgerReducer = (state, action, immutableAction) => {
     case appConstants.APP_CHECK_REFERRAL_ACTIVITY:
       {
         state = ledgerApi.checkReferralActivity(state)
+        break
+      }
+    case appConstants.APP_ON_FETCH_REFERRAL_HEADERS:
+      {
+        state = ledgerApi.onFetchReferralHeaders(state, action.get('error'), action.get('response'), action.get('body'))
+        break
+      }
+    case appConstants.APP_ON_LEDGER_FUZZING:
+      {
+        if (action.get('newStamp') != null) {
+          const newStamp = parseInt(action.get('newStamp'))
+          if (!isNaN(newStamp) && newStamp > 0) {
+            state = ledgerState.setAboutProp(state, 'status', ledgerStatuses.FUZZING)
+            state = ledgerState.setInfoProp(state, 'reconcileStamp', newStamp)
+          }
+        }
+
+        if (action.get('pruned')) {
+          state = ledgerApi.synopsisNormalizer(state, null, true, true)
+        }
         break
       }
     case appConstants.APP_ON_REFERRAL_ACTIVITY:
@@ -501,6 +552,28 @@ const ledgerReducer = (state, action, immutableAction) => {
           action.get('duration'),
           action.get('revisited')
         )
+        break
+      }
+    case appConstants.APP_ON_WALLET_PROPERTIES_ERROR:
+      {
+        state = ledgerState.setAboutProp(state, 'status', ledgerStatuses.SERVER_PROBLEM)
+        break
+      }
+    case appConstants.APP_ON_LEDGER_BACKUP_SUCCESS:
+      {
+        state = aboutPreferencesState.setBackupStatus(state, true)
+        break
+      }
+    case appConstants.APP_ON_WALLET_DELETE:
+      {
+        state = ledgerApi.deleteWallet(state)
+        break
+      }
+    case appConstants.APP_ON_PUBLISHER_TOGGLE_UPDATE:
+      {
+        const viewData = makeJS(action.get('viewData'))
+        state = ledgerApi.pageDataChanged(state, {}, true)
+        state = ledgerApi.pageDataChanged(state, viewData, true)
         break
       }
   }

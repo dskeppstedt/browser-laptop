@@ -167,11 +167,7 @@ class ContextMenuItem extends ImmutableComponent {
       return label
     }
     if (item.get('labelDataBind') === 'zoomLevel') {
-      const activeWebview = document.querySelector('.frameWrapper.isActive webview')
-      let percent = 100
-      if (activeWebview) {
-        percent = activeWebview.getZoomPercent()
-      }
+      const percent = this.props.lastZoomPercentage || 100
       return `${percent}%`
     }
     return ''
@@ -304,7 +300,8 @@ const styles = StyleSheet.create({
   },
 
   item: {
-    maxWidth: '420px',
+    maxWidth: 'inherit',
+    minWidth: 'inherit',
     paddingTop: '6px',
     paddingRight: '10px',
     paddingBottom: '6px',

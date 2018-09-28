@@ -5,6 +5,7 @@ const HelpfulHints = require('./helpfulHints')
 
 const {StyleSheet, css} = require('aphrodite')
 const globalStyles = require('../styles/global')
+const { theme } = require('../styles/theme')
 
 // Icons
 const iconGeneral = require('../../../extensions/brave/img/preferences/browser_prefs_general.svg')
@@ -13,7 +14,8 @@ const iconTabs = require('../../../extensions/brave/img/preferences/browser_pref
 const iconExtensions = require('../../../extensions/brave/img/preferences/browser_prefs_extensions.svg')
 const iconPlugins = require('../../../extensions/brave/img/preferences/browser_prefs_plugins.svg')
 const iconSecurity = require('../../../extensions/brave/img/preferences/browser_prefs_security.svg')
-const iconShields = require('../../../extensions/brave/img/preferences/browser_prefs_shields.svg')
+const iconShieldsOn = require('../../../extensions/brave/img/preferences/browser_prefs_shields_on.svg')
+const iconShieldsOff = require('../../../extensions/brave/img/preferences/browser_prefs_shields_off.svg')
 const iconPaymentsOn = require('../../../extensions/brave/img/preferences/browser_prefs_payments_on.svg')
 const iconPaymentsOff = require('../../../extensions/brave/img/preferences/browser_prefs_payments_off.svg')
 // sync TBD
@@ -70,7 +72,9 @@ class PreferenceNavigation extends ImmutableComponent {
           onClick={this.props.changeTab.bind(null, preferenceTabs.PLUGINS)}
           selected={this.props.preferenceTab === preferenceTabs.PLUGINS}
         />
-        <PreferenceNavigationButton icon={styles.shields}
+        <PreferenceNavigationButton
+          iconOn={styles.shieldsOn}
+          iconOff={styles.shieldsOff}
           l10nId='shields'
           onClick={this.props.changeTab.bind(null, preferenceTabs.SHIELDS)}
           selected={this.props.preferenceTab === preferenceTabs.SHIELDS}
@@ -89,7 +93,7 @@ class PreferenceNavigation extends ImmutableComponent {
 const navIcon = icon => ({WebkitMask: `url(${icon}) no-repeat 0 0`})
 const styles = StyleSheet.create({
   prefAside: {
-    background: `linear-gradient(${globalStyles.color.gray}, ${globalStyles.color.mediumGray})`,
+    background: theme.preferences.navigationBackground,
     boxShadow: globalStyles.shadow.insetShadow,
     position: 'fixed',
     zIndex: '600',
@@ -112,7 +116,8 @@ const styles = StyleSheet.create({
   tabs: navIcon(iconTabs),
   plugins: navIcon(iconPlugins),
   security: navIcon(iconSecurity),
-  shields: navIcon(iconShields),
+  shieldsOn: {background: `url(${iconShieldsOn}) no-repeat 0 0`},
+  shieldsOff: navIcon(iconShieldsOff),
   paymentsOn: {background: `url(${iconPaymentsOn}) no-repeat 0 0`},
   paymentsOff: navIcon(iconPaymentsOff),
   sync: navIcon(iconSync),

@@ -11,8 +11,8 @@ const ReduxComponent = require('../reduxComponent')
 const Dialog = require('../common/dialog')
 const AddEditBookmarkForm = require('./addEditBookmarkForm')
 const {
-  CommonFormHanger,
-  CommonFormSection
+  CommonFormBookmarkHanger,
+  CommonFormBottomWrapper
 } = require('../common/commonForm')
 
 // States
@@ -85,7 +85,6 @@ class AddEditBookmarkHanger extends React.Component {
     const props = {}
     // used in renderer
     props.isModal = ownProps.isModal
-    props.withHomeButton = getSetting(settings.SHOW_HOME_BUTTON)
     props.heading = bookmarkHangerHeading(editMode, isAdded)
     props.location = siteDetail.get('location')
     props.parentFolderId = siteDetail.get('parentFolderId')
@@ -108,17 +107,19 @@ class AddEditBookmarkHanger extends React.Component {
       bookmarkDialog: this.props.isModal,
       bookmarkHanger: !this.props.isModal,
       [css(styles.bookmarkHanger)]: !this.props.isModal
-    })} isClickDismiss>
-      <CommonFormHanger bookmark onClick={this.onClick}>
+    })} onHide={this.onClose} isClickDismiss>
+      <CommonFormBookmarkHanger onClick={this.onClick}>
         {
           !this.props.isModal
           ? <div className={cx({
-            [css(styles.bookmarkHanger__arrowUp)]: true,
-            [css(styles.bookmarkHanger__withHomeButton)]: this.props.withHomeButton
+            [css(styles.bookmarkHanger__arrowUp)]: true
           })} />
           : null
         }
-        <CommonFormSection title l10nId={this.props.heading} />
+        <div className={cx({
+          [css(styles.commonFormSection)]: true,
+          [css(styles.commonFormTitle)]: true
+        })} data-l10n-id={this.props.heading} />
         <AddEditBookmarkForm
           title={this.props.title}
           editKey={this.props.editKey}
@@ -133,20 +134,30 @@ class AddEditBookmarkHanger extends React.Component {
         />
         {
           !this.props.isModal
-            ? <CommonFormSection bottom>
+            ? <CommonFormBottomWrapper>
               <div className={css(styles.bookmark__bottomWrapper, styles.bottomWrapper__cursor)}
                 data-test-id='viewBookmarks'
                 data-l10n-id='viewBookmarks'
                 onClick={this.onViewBookmarks} />
-            </CommonFormSection>
+            </CommonFormBottomWrapper>
             : null
         }
-      </CommonFormHanger>
+      </CommonFormBookmarkHanger>
     </Dialog>
   }
 }
 
 const styles = StyleSheet.create({
+  // Copied from commonForm.js
+  commonFormSection: {
+    // PR #7985
+    margin: `${globalStyles.spacing.dialogInsideMargin} 30px`
+  },
+  commonFormTitle: {
+    color: globalStyles.color.braveOrange,
+    fontSize: '1.2em'
+  },
+
   bookmarkHanger: {
     // See: #9040
     justifyContent: 'flex-start !important',
@@ -162,21 +173,18 @@ const styles = StyleSheet.create({
   },
   bookmarkHanger__arrowUp: {
     position: 'relative',
-    left: '54px',
+    left: '59px',
 
     '::after': {
       content: '""',
       position: 'absolute',
       width: 0,
       height: 0,
-      border: `8px solid ${globalStyles.color.commonFormBackgroundColor}`,
+      border: `8px solid ${globalStyles.color.modalVeryLightGray}`,
       boxShadow: globalStyles.shadow.bookmarkHangerArrowUpShadow,
       transformOrigin: '0 0',
       transform: 'rotate(135deg)'
     }
-  },
-  bookmarkHanger__withHomeButton: {
-    left: '83px'
   },
   bookmark__bottomWrapper: {
     display: 'flex',

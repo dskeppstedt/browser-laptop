@@ -4,7 +4,6 @@
 
 const React = require('react')
 const ReactDOM = require('react-dom')
-const Immutable = require('immutable')
 const {StyleSheet, css} = require('aphrodite/no-important')
 
 // Components
@@ -20,13 +19,14 @@ const windowStore = require('../../../../js/stores/windowStore')
 
 // Constants
 const dragTypes = require('../../../../js/constants/dragTypes')
+const globalStyles = require('../styles/global')
 
 // Utils
 const dnd = require('../../../../js/dnd')
 const dndData = require('../../../../js/dndData')
 const frameStateUtil = require('../../../../js/state/frameStateUtil')
-const pinnedSitesUtil = require('../../../common/lib/pinnedSitesUtil')
 const {isIntermediateAboutPage} = require('../../../../js/lib/appUrlUtil')
+const {getCurrentWindowId} = require('../../currentWindow')
 
 class PinnedTabs extends React.Component {
   constructor (props) {
@@ -54,18 +54,11 @@ class PinnedTabs extends React.Component {
       let droppedOnTab = dnd.closestFromXOffset(this.tabRefs.filter((node) => node && node.props.frameKey !== key), clientX).selectedRef
       if (droppedOnTab) {
         const isLeftSide = dnd.isLeftSide(ReactDOM.findDOMNode(droppedOnTab), clientX)
+        const sourceIsPinned = sourceDragData.get('pinnedLocation')
+        // TODO: pass in needs-pinning in moveTab, and do nothing else here
         windowActions.moveTab(key, droppedOnTab.props.frameKey, isLeftSide)
-        if (!sourceDragData.get('pinnedLocation')) {
+        if (!sourceIsPinned) {
           appActions.tabPinned(sourceDragData.get('tabId'), true)
-        } else {
-          const sourceDetails = pinnedSitesUtil.getDetailFromFrame(sourceDragData)
-          const droppedOnFrame = this.dropFrame(droppedOnTab.props.frameKey)
-          const destinationDetails = pinnedSitesUtil.getDetailFromFrame(droppedOnFrame)
-          appActions.onPinnedTabReorder(
-            pinnedSitesUtil.getKey(sourceDetails),
-            pinnedSitesUtil.getKey(destinationDetails),
-            isLeftSide
-          )
         }
       }
     }, 0)
@@ -78,19 +71,24 @@ class PinnedTabs extends React.Component {
 
   mergeProps (state, ownProps) {
     const currentWindow = state.get('currentWindow')
-    const pinnedFrames = frameStateUtil.getPinnedFrames(currentWindow) || Immutable.List()
+    const pinnedFrames = frameStateUtil.getPinnedFrames(currentWindow)
+      .filter(frame => frame.get('tabStripWindowId') === getCurrentWindowId())
+    const previewFrameKey = frameStateUtil.getPreviewFrameKey(currentWindow)
 
     const props = {}
     // used in renderer
     props.pinnedTabs = pinnedFrames.map((frame) => frame.get('key'))
-
+    props.isPreviewingPinnedTab = previewFrameKey && props.pinnedTabs.some(key => key === previewFrameKey)
     return props
   }
 
   render () {
     this.tabRefs = []
     return <div
-      className={css(styles.pinnedTabs)}
+      className={css(
+        styles.pinnedTabs,
+        this.props.isPreviewingPinnedTab && styles.pinnedTabs_previewing
+      )}
       data-test-id='pinnedTabs'
       onDragOver={this.onDragOver}
       onDrop={this.onDrop}
@@ -112,9 +110,16 @@ class PinnedTabs extends React.Component {
 const styles = StyleSheet.create({
   pinnedTabs: {
     height: '-webkit-fill-available',
+    display: 'flex',
+    alignItems: 'stretch',
     boxSizing: 'border-box',
+    position: 'relative',
     marginLeft: 0,
     marginTop: 0
+  },
+
+  pinnedTabs_previewing: {
+    zIndex: globalStyles.zindex.zindexTabs + 1
   }
 })
 

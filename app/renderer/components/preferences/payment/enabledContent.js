@@ -7,42 +7,55 @@ const {StyleSheet, css} = require('aphrodite/no-important')
 const addMonths = require('date-fns/add_months')
 const Immutable = require('immutable')
 
-// util
-const {batToCurrencyString, formatCurrentBalance, formattedDateFromTimestamp, walletStatus} = require('../../../../common/lib/ledgerUtil')
-const {l10nErrorText} = require('../../../../common/lib/httpUtil')
-const ledgerUtil = require('../../../../common/lib/ledgerUtil')
-const {changeSetting} = require('../../../lib/settingsUtil')
-const settings = require('../../../../../js/constants/settings')
-const locale = require('../../../../../js/l10n')
+// Components
+const ImmutableComponent = require('../../immutableComponent')
+const BrowserButton = require('../../common/browserButton')
+const {FormDropdown} = require('../../common/dropdown')
+const LedgerTable = require('./ledgerTable')
+const Captcha = require('./captcha')
 
 // State
 const ledgerState = require('../../../../common/state/ledgerState')
 
-// components
-const ImmutableComponent = require('../../immutableComponent')
-const BrowserButton = require('../../common/browserButton')
-const {FormTextbox} = require('../../common/textbox')
-const {FormDropdown} = require('../../common/dropdown')
-const LedgerTable = require('./ledgerTable')
-
-// style
-const globalStyles = require('../../styles/global')
-const {paymentStylesVariables} = require('../../styles/payment')
-const {loaderAnimation} = require('../../styles/animations')
-const closeButton = require('../../../../../img/toolbar/stoploading_btn.svg')
-const cx = require('../../../../../js/lib/classSet')
-
 // Actions
 const appActions = require('../../../../../js/actions/appActions')
 
+// Constants
+const ledgerStatuses = require('../../../../common/constants/ledgerStatuses')
+const settings = require('../../../../../js/constants/settings')
+
+// Utils
+const {
+  batToCurrencyString,
+  formatCurrentBalance,
+  formattedDateFromTimestamp,
+  walletStatus
+} = require('../../../../common/lib/ledgerUtil')
+const {l10nErrorText} = require('../../../../common/lib/httpUtil')
+const ledgerUtil = require('../../../../common/lib/ledgerUtil')
+const {changeSetting} = require('../../../lib/settingsUtil')
+const locale = require('../../../../../js/l10n')
+
+// Styles
+const globalStyles = require('../../styles/global')
+const cx = require('../../../../../js/lib/classSet')
+const {paymentStylesVariables} = require('../../styles/payment')
+const closeButton = require('../../../../../img/toolbar/stoploading_btn.svg')
+const promotionStatuses = require('../../../../common/constants/promotionStatuses')
+
 // TODO: report when funds are too low
-// TODO: support non-USD currency
 class EnabledContent extends ImmutableComponent {
   constructor (props) {
     super(props)
     this.claimButton = this.claimButton.bind(this)
     this.onClaimClick = this.onClaimClick.bind(this)
-    this.closeClick = this.closeClick.bind(this)
+    this.closePromotionClick = this.closePromotionClick.bind(this)
+    this.recoverStatusClick = this.recoverStatusClick.bind(this)
+  }
+
+  showAddFunds () {
+    this.props.showOverlay('addFunds')
+    this.props.setOverlayName('addFunds')
   }
 
   walletButton () {
@@ -51,8 +64,14 @@ class EnabledContent extends ImmutableComponent {
       ? 'addFundsTitle'
       : (ledgerData.get('creating') ? 'creatingWallet' : 'createWallet')
     const onButtonClick = ledgerData.get('created')
-      ? this.props.showOverlay.bind(this, 'addFunds')
+      ? this.showAddFunds.bind(this)
       : (ledgerData.get('creating') ? () => {} : this.createWallet())
+
+    let buttonDisabled = !ledgerData.get('created')
+
+    if (buttonText === 'createWallet') {
+      buttonDisabled = false
+    }
 
     return <div>
       <BrowserButton
@@ -62,7 +81,7 @@ class EnabledContent extends ImmutableComponent {
         test2Id={'addFunds'}
         l10nId={buttonText}
         onClick={onButtonClick.bind(this)}
-        disabled={!ledgerData.get('created')}
+        disabled={buttonDisabled}
       />
       <a className={cx({
         [globalStyles.appIcons.question]: true,
@@ -75,7 +94,7 @@ class EnabledContent extends ImmutableComponent {
   }
 
   onClaimClick () {
-    appActions.onPromotionClaim()
+    appActions.onPromotionClick()
   }
 
   claimButton () {
@@ -123,12 +142,28 @@ class EnabledContent extends ImmutableComponent {
 
   fundsAmount () {
     const ledgerData = this.props.ledgerData
+    if (!ledgerData) {
+      return
+    }
 
-    return <FormTextbox
-      readOnly
-      data-test-id='fundsAmount'
-      value={formatCurrentBalance(ledgerData)}
-    />
+    const total = formatCurrentBalance(ledgerData, ledgerData.get('balance'), false) || ''
+    const userFunded = formatCurrentBalance(ledgerData, ledgerData.get('userFunded')) || ''
+    const grants = ledgerData.get('grants') || Immutable.List()
+
+    return <div className={css(styles.fundsAmount)}>
+      <div className={css(styles.fundsAmount__item)}>{userFunded}</div>
+      {
+        grants.map(grant => {
+          return <div className={css(styles.fundsAmount__item)}>
+            {formatCurrentBalance(ledgerData, grant.get('amount'), false)}
+            <span> (<span data-l10n-id='expires' /> {new Date(grant.get('expirationDate') * 1000).toLocaleDateString()})</span>
+          </div>
+        })
+      }
+      <div className={css(styles.fundsAmount__item, styles.fundsAmount__total)}>
+        {total} (<span data-l10n-id='total' />)
+      </div>
+    </div>
   }
 
   lastReconcileMessage () {
@@ -140,7 +175,9 @@ class EnabledContent extends ImmutableComponent {
     let prevReconcileDateValue
     let text
 
-    if (!walletCreated || !walletHasReconcile || !walletHasTransactions) {
+    if (ledgerData.get('status') === ledgerStatuses.IN_PROGRESS) {
+      text = 'paymentInProgress'
+    } else if (!walletCreated || !walletHasReconcile || !walletHasTransactions) {
       text = 'noPaymentHistory'
     } else {
       text = 'viewPaymentHistory'
@@ -154,8 +191,12 @@ class EnabledContent extends ImmutableComponent {
     }
 
     return <section>
-      <div data-l10n-id='lastContribution' />
-      <div data-l10n-id={text} data-l10n-args={JSON.stringify(l10nDataArgs)} />
+      {
+        prevReconcileDateValue
+        ? <span data-l10n-id='lastContribution' className={css(styles.lastContribution)} />
+        : null
+      }
+      <span data-l10n-id={text} data-l10n-args={JSON.stringify(l10nDataArgs)} />
     </section>
   }
 
@@ -195,16 +236,15 @@ class EnabledContent extends ImmutableComponent {
     }
 
     return <section>
-      <div data-l10n-id='nextContribution' />
-      <div data-l10n-args={JSON.stringify(l10nDataArgs)} data-l10n-id={l10nDataId} />
+      <span data-l10n-id='nextContribution' /> <span data-l10n-args={JSON.stringify(l10nDataArgs)} data-l10n-id={l10nDataId} />
     </section>
   }
 
-  closeClick () {
+  closePromotionClick () {
     const promo = this.props.ledgerData.get('promotion') || Immutable.Map()
     const status = promo.get('promotionStatus')
     if (status && !promo.has('claimedTimestamp')) {
-      if (status === 'expiredError') {
+      if (status === promotionStatuses.PROMO_EXPIRED) {
         appActions.onPromotionRemoval()
       } else {
         appActions.onPromotionClose()
@@ -214,92 +254,163 @@ class EnabledContent extends ImmutableComponent {
     }
   }
 
+  recoverStatusClick () {
+    appActions.loadURLRequested(
+      parseInt(this.props.ledgerData.get('tabId')),
+      'about:preferences#payments?ledgerRecoveryOverlayVisible',
+      true
+    )
+  }
+
+  captchaOverlay (promo) {
+    return <Captcha promo={promo} />
+  }
+
   statusMessage () {
     const promo = this.props.ledgerData.get('promotion') || Immutable.Map()
+    const status = this.props.ledgerData.get('status') || ''
     const successText = promo.getIn(['panel', 'successText'])
-    let status = promo.get('promotionStatus')
+    const promotionStatus = promo.get('promotionStatus')
+    let isPromotion = true
 
-    if ((!successText || !promo.has('claimedTimestamp')) && !status) {
-      return
+    if ((!successText || !promo.has('claimedTimestamp')) && !promotionStatus) {
+      isPromotion = false
+      if (status.length === 0) {
+        return
+      }
     }
 
-    let title = successText.get('title')
-    let message = successText.get('message')
-    let text = promo.getIn(['panel', 'disclaimer'])
+    let title, message, text, rightButton, leftButton, showClose
 
-    if (status) {
+    if (isPromotion) {
+      showClose = true
+      title = successText.get('title')
+      message = successText.get('message')
+      text = promo.getIn(['panel', 'disclaimer'])
+      rightButton = <BrowserButton
+        secondaryColor
+        l10nId={'paymentHistoryOKText'}
+        custom={styles.enabledContent__overlay_button}
+        onClick={this.closePromotionClick}
+      />
+
+      if (promotionStatus) {
+        switch (promotionStatus) {
+          case promotionStatuses.GENERAL_ERROR:
+            {
+              title = locale.translation('promotionGeneralErrorTitle')
+              message = locale.translation('promotionGeneralErrorMessage')
+              text = locale.translation('promotionGeneralErrorText')
+              break
+            }
+          case promotionStatuses.PROMO_EXPIRED:
+            {
+              title = locale.translation('promotionClaimedErrorTitle')
+              message = locale.translation('promotionClaimedErrorMessage')
+              text = locale.translation('promotionClaimedErrorText')
+              break
+            }
+          case promotionStatuses.CAPTCHA_BLOCK:
+            {
+              title = locale.translation('promotionCaptchaBlockTitle')
+              message = locale.translation('promotionCaptchaBlockMessage')
+              text = ' '
+              break
+            }
+          case promotionStatuses.CAPTCHA_CHECK:
+          case promotionStatuses.CAPTCHA_ERROR:
+            {
+              return this.captchaOverlay(promo)
+            }
+        }
+      }
+    } else {
       switch (status) {
-        case 'generalError':
+        case ledgerStatuses.CORRUPTED_SEED:
           {
-            title = locale.translation('promotionGeneralErrorTitle')
-            message = locale.translation('promotionGeneralErrorMessage')
-            text = locale.translation('promotionGeneralErrorText')
+            showClose = false
+            title = locale.translation('corruptedOverlayTitle')
+            message = locale.translation('corruptedOverlayMessage')
+            text = locale.translation('corruptedOverlayText')
+            leftButton = <a
+              data-l10n-id='corruptedOverlayFAQ'
+              className={css(styles.enabledContent__overlay_link)}
+              href='https://brave.com/faq-payments#corrupted-wallet'
+              target='_blank'
+            />
+            rightButton = <BrowserButton
+              secondaryColor
+              l10nId={'corruptedOverlayButton'}
+              custom={styles.enabledContent__overlay_button}
+              onClick={this.recoverStatusClick}
+            />
             break
           }
-        case 'expiredError':
+        case ledgerStatuses.SERVER_PROBLEM:
           {
-            title = locale.translation('promotionClaimedErrorTitle')
-            message = locale.translation('promotionClaimedErrorMessage')
-            text = locale.translation('promotionClaimedErrorText')
+            showClose = false
+            title = locale.translation('ledgerNetworkErrorTitle')
+            message = locale.translation('ledgerNetworkErrorMessage')
+            text = locale.translation('ledgerNetworkErrorText')
             break
+          }
+        default:
+          {
+            return
           }
       }
     }
 
-    return <div className={cx({[css(styles.enabledContent__grant)]: true, 'enabledContent__grant': true})}>
-      <div
-        className={css(styles.enabledContent__grant_close)}
-        onClick={this.closeClick}
-      />
-      <p className={css(styles.enabledContent__grant_title)}>
-        <span className={css(styles.enabledContent__grant_bold)}>{title}</span> {message}
+    return <div className={cx({[css(styles.enabledContent__overlay)]: true, 'enabledContent__overlay': true})}>
+      {
+        showClose ? <div
+          className={css(styles.enabledContent__overlay_close)}
+          onClick={this.closePromotionClick}
+          /> : null
+      }
+      <p className={css(styles.enabledContent__overlay_title)}>
+        <span className={css(styles.enabledContent__overlay_bold)}>{title}</span>
+        <span>{message}</span>
       </p>
-      <p className={css(styles.enabledContent__grant_text)}>
+      <p className={css(styles.enabledContent__overlay_text)}>
         {text}
       </p>
-      <BrowserButton
-        secondaryColor
-        l10nId={'paymentHistoryOKText'}
-        custom={styles.enabledContent__grant_button}
-        onClick={this.closeClick}
-      />
+      <div className={css(styles.enabledContent__overlay_buttons)}>
+        <div className={css(gridStyles.row1col1, styles.enabledContent__overlay_buttons_left)}>{leftButton}</div>
+        <div className={css(gridStyles.row1col2, styles.enabledContent__overlay_buttons_right)}>{rightButton}</div>
+      </div>
     </div>
+  }
+
+  showDeletedSites () {
+    this.props.showOverlay('deletedSites')
+    this.props.setOverlayName('deletedSites')
+  }
+
+  get deletedSitesLink () {
+    if (this.props.showDeletedSites) {
+      return <span>
+        <a data-l10n-id='showDeletedSitesDialog'
+          data-test-id='showDeletedSitesDialog'
+          className={css(styles.enabledContent__footer__link)}
+          onClick={this.showDeletedSites.bind(this)}
+        />
+        <span
+          className={css(styles.enabledContent__footer__link, styles.enabledContent__footer__separator)}
+        >|</span>
+      </span>
+    }
+
+    return null
   }
 
   render () {
     const ledgerData = this.props.ledgerData
-    const walletStatusText = walletStatus(ledgerData)
+    const walletStatusText = walletStatus(ledgerData, this.props.settings)
     const contributionAmount = ledgerState.getContributionAmount(null, ledgerData.get('contributionAmount'), this.props.settings)
-    const inTransition = ledgerData.getIn(['migration', 'btc2BatTransitionPending']) === true
     const amountList = ledgerData.get('monthlyAmounts') || ledgerUtil.defaultMonthlyAmounts
 
     return <section className={css(styles.enabledContent)}>
-      <div className={css(
-        styles.enabledContent__loader,
-        inTransition && styles.enabledContent__loader_show
-      )}>
-        <div className={css(styles.enabledContent__loader__text)}>
-          <p data-l10n-id='leaderLoaderText1' />
-          <p data-l10n-id='leaderLoaderText2' />
-        </div>
-        <div className={css(styles.enabledContent__loader__wrap)}>
-          <div className={css(
-            styles.enabledContent__loader__wrap__line,
-            styles.enabledContent__loader__wrap__line_1,
-            !inTransition && styles.enabledContent__loader__wrap__line_off
-          )} />
-          <div className={css(
-            styles.enabledContent__loader__wrap__line,
-            styles.enabledContent__loader__wrap__line_2,
-            !inTransition && styles.enabledContent__loader__wrap__line_off
-          )} />
-          <div className={css(
-            styles.enabledContent__loader__wrap__line,
-            styles.enabledContent__loader__wrap__line_3,
-            !inTransition && styles.enabledContent__loader__wrap__line_off
-          )} />
-        </div>
-      </div>
       <div className={css(styles.enabledContent__walletBar)} data-test-id='walletBar'>
         <div className={css(gridStyles.row1col1, styles.enabledContent__walletBar__title)} data-l10n-id='monthlyBudget' />
         <div className={css(gridStyles.row1col2, styles.enabledContent__walletBar__title)} data-l10n-id='accountBalance' />
@@ -308,7 +419,6 @@ class EnabledContent extends ImmutableComponent {
         </div>
         <div className={css(gridStyles.row2col1)}>
           <FormDropdown
-            data-isPanel
             data-test-id='fundsSelectBox'
             value={contributionAmount}
             onChange={changeSetting.bind(null, this.props.onChangeSetting, settings.PAYMENTS_CONTRIBUTION_AMOUNT)}
@@ -330,7 +440,7 @@ class EnabledContent extends ImmutableComponent {
             }
           </FormDropdown>
         </div>
-        <div className={css(gridStyles.row2col2)}>
+        <div className={css(gridStyles.row2col2, gridStyles.mergeRow23Col2)}>
           {
             ledgerData.get('error') && ledgerData.get('error').get('caller') === 'getWalletProperties'
               ? <div data-l10n-id='accountBalanceConnectionError' />
@@ -342,8 +452,6 @@ class EnabledContent extends ImmutableComponent {
         </div>
         <div className={css(gridStyles.row3col1, styles.enabledContent__walletBar__message)}>
           {this.lastReconcileMessage()}
-        </div>
-        <div className={css(gridStyles.row3col2, styles.enabledContent__walletBar__message)}>
           {
             ledgerData.get('error') && ledgerData.get('error').get('caller') === 'getWalletProperties'
               ? <div data-l10n-id={this.ledgerDataErrorText()} />
@@ -360,11 +468,13 @@ class EnabledContent extends ImmutableComponent {
       <LedgerTable ledgerData={this.props.ledgerData}
         settings={this.props.settings}
         onChangeSetting={this.props.onChangeSetting}
-        siteSettings={this.props.siteSettings} />
+        siteSettings={this.props.siteSettings}
+        paymentInProgress={this.props.paymentInProgress} />
       <div className={css(styles.enabledContent__tos)}>
+        { this.deletedSitesLink }
         <a data-l10n-id='termsOfService'
           data-test-id='termsOfService'
-          className={css(styles.enabledContent__tos__link)}
+          className={css(styles.enabledContent__footer__link)}
           href='https://basicattentiontoken.org/contributor-terms-of-service/'
           target='_blank'
           rel='noreferrer noopener' />
@@ -434,6 +544,10 @@ const gridStyles = StyleSheet.create({
     gridColumn: 3,
     marginRight: globalStyles.spacing.panelPadding,
     marginBottom: globalStyles.spacing.panelPadding
+  },
+
+  mergeRow23Col2: {
+    gridRow: '2 / span 2'
   }
 })
 
@@ -463,75 +577,17 @@ const styles = StyleSheet.create({
     padding: '20px 60px'
   },
 
-  enabledContent__tos__link: {
+  enabledContent__footer__link: {
     fontSize: '13px',
     color: '#666'
   },
 
-  enabledContent__loader: {
-    background: '#fafafa',
-    zIndex: 3,
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: '100%',
-    height: '100%',
-    margin: 0,
-    opacity: 0,
-    transform: 'translateX(-1000%)',
-    transition: 'opacity .4s ease-out, transform .1s .4s ease'
-  },
-
-  enabledContent__loader_show: {
-    opacity: 1,
-    transform: 'translateX(0)',
-    transition: 'opacity .4s ease-out'
-  },
-
-  enabledContent__loader__text: {
-    textAlign: 'center',
-    padding: '50px 0 20px',
-    display: 'block',
-    color: '#444'
-  },
-
-  enabledContent__loader__wrap: {
-    width: '45px',
-    left: 0,
-    right: 0,
-    margin: '50px auto 0'
-  },
-
-  enabledContent__loader__wrap__line: {
+  enabledContent__footer__separator: {
     display: 'inline-block',
-    width: '15px',
-    height: '15px',
-    borderRadius: '15px',
-    animationName: [loaderAnimation],
-    animationDuration: '.6s',
-    animationIterationCount: 'infinite'
+    padding: '0 10px'
   },
 
-  enabledContent__loader__wrap__line_1: {
-    backgroundColor: '#FF5000',
-    animationDelay: '.1s'
-  },
-
-  enabledContent__loader__wrap__line_2: {
-    backgroundColor: '#9E1F63',
-    animationDelay: '.2s'
-  },
-
-  enabledContent__loader__wrap__line_3: {
-    backgroundColor: '#662D91',
-    animationDelay: '.3s'
-  },
-
-  enabledContent__loader__wrap__line_off: {
-    animationName: 'none'
-  },
-
-  enabledContent__grant: {
+  enabledContent__overlay: {
     position: 'absolute',
     zIndex: 3,
     top: 0,
@@ -540,12 +596,12 @@ const styles = StyleSheet.create({
     minHeight: '159px',
     background: '#f3f3f3',
     borderRadius: '8px',
-    padding: '30px 50px 20px',
+    padding: '27px 50px 17px',
     boxSizing: 'border-box',
     boxShadow: '4px 6px 3px #dadada'
   },
 
-  enabledContent__grant_close: {
+  enabledContent__overlay_close: {
     position: 'absolute',
     right: '15px',
     top: '15px',
@@ -561,25 +617,51 @@ const styles = StyleSheet.create({
     }
   },
 
-  enabledContent__grant_title: {
+  enabledContent__overlay_title: {
     color: '#5f5f5f',
     fontSize: '20px',
     display: 'block',
     marginBottom: '10px'
   },
 
-  enabledContent__grant_bold: {
-    color: '#ff5500'
+  enabledContent__overlay_bold: {
+    color: '#ff5500',
+    paddingRight: '5px'
   },
 
-  enabledContent__grant_text: {
+  enabledContent__overlay_text: {
     fontSize: '16px',
-    color: '#9b9b9b',
-    maxWidth: '600px'
+    color: '#828282',
+    maxWidth: '700px',
+    lineHeight: '25px',
+    padding: '5px 5px 5px 0'
   },
 
-  enabledContent__grant_button: {
+  enabledContent__overlay_buttons: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr'
+  },
+
+  enabledContent__overlay_buttons_left: {
+    marginLeft: 0
+  },
+
+  enabledContent__overlay_buttons_right: {
+    marginRight: 0
+  },
+
+  enabledContent__overlay_button: {
     float: 'right'
+  },
+
+  enabledContent__overlay_link: {
+    color: '#5f5f5f',
+    fontSize: '16px',
+    textDecoration: 'none',
+
+    ':hover': {
+      textDecoration: 'underline'
+    }
   },
 
   enabledContent__walletBar: {
@@ -600,6 +682,23 @@ const styles = StyleSheet.create({
     fontSize: globalStyles.payments.fontSize.regular,
     lineHeight: 1.5,
     marginTop: globalStyles.spacing.panelPadding
+  },
+
+  fundsAmount__item: {
+    marginBottom: '4px',
+    width: '215px',
+    fontSize: '14.5px'
+  },
+
+  fundsAmount__total: {
+    marginTop: '10px',
+    paddingTop: '12px',
+    borderTop: '1px solid #999',
+    fontSize: '15px'
+  },
+
+  lastContribution: {
+    paddingRight: '4px'
   }
 })
 

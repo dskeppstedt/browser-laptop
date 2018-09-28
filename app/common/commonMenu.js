@@ -9,31 +9,26 @@ const messages = require('../../js/constants/messages')
 const locale = require('../../js/l10n')
 const settings = require('../../js/constants/settings')
 const {tabs} = require('../../js/constants/config')
-const getSetting = require('../../js/settings').getSetting
+const {getSetting} = require('../../js/settings')
 const communityURL = 'https://community.brave.com/'
 const isDarwin = process.platform === 'darwin'
 const electron = require('electron')
-
-let BrowserWindow
-if (process.type === 'browser') {
-  BrowserWindow = electron.BrowserWindow
-} else {
-  BrowserWindow = electron.remote.BrowserWindow
-}
+const menuUtil = require('./lib/menuUtil')
 
 const ensureAtLeastOneWindow = (frameOpts) => {
-  if (process.type === 'browser') {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      appActions.newWindow(frameOpts || {})
-      return
-    }
-  }
-
-  if (!frameOpts) {
+  // Handle no new tab requested, but need a window
+  // and possibly there is no window.
+  if (!frameOpts && process.type === 'browser') {
+    // focus active window, or create a new one if there are none
+    appActions.focusOrCreateWindow()
     return
   }
-
-  appActions.createTabRequested(frameOpts)
+  // If this action is dispatched from a renderer window (Windows OS),
+  // it will create the tab in the current window since the action originates from it.
+  // If it was dispatched by the browser (macOS / Linux),
+  // then it will create the tab in the active window
+  // or a new window if there is no active window.
+  appActions.createTabRequested(frameOpts, false, false, true)
 }
 
 /**
@@ -85,6 +80,19 @@ module.exports.newPrivateTabMenuItem = () => {
       ensureAtLeastOneWindow({
         url: 'about:newtab',
         isPrivate: true
+      })
+    }
+  }
+}
+
+module.exports.newTorTabMenuItem = () => {
+  return {
+    label: locale.translation('newTorTab'),
+    click: function (item, focusedWindow) {
+      ensureAtLeastOneWindow({
+        url: 'about:newtab',
+        isPrivate: true,
+        isTor: true
       })
     }
   }
@@ -142,7 +150,7 @@ module.exports.printMenuItem = () => {
 }
 
 module.exports.simpleShareActiveTabMenuItem = (l10nId, type, accelerator) => {
-  const siteName = type.charAt(0).toUpperCase() + type.slice(1)
+  const siteName = menuUtil.extractSiteName(type)
 
   return {
     label: locale.translation(l10nId, {siteName: siteName}),

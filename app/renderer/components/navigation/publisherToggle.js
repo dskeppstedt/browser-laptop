@@ -4,30 +4,26 @@
 
 const React = require('react')
 const Immutable = require('immutable')
-const {StyleSheet, css} = require('aphrodite')
+const {StyleSheet} = require('aphrodite')
 
 // Components
 const ReduxComponent = require('../reduxComponent')
-const BrowserButton = require('../common/browserButton')
+const NavigationButton = require('./buttons/navigationButton')
+const FundPublisherIcon = require('../../../../icons/fund_publisher')
 
 // Actions
 const appActions = require('../../../../js/actions/appActions')
 
 // State
+const tabState = require('../../../common/state/tabState')
 const ledgerState = require('../../../common/state/ledgerState')
 
 // Utils
-const {getHostPattern} = require('../../../../js/lib/urlutil')
+const {getHostPattern, getUrlFromPDFUrl} = require('../../../../js/lib/urlutil')
 const {getBaseUrl} = require('../../../../js/lib/appUrlUtil')
 const frameStateUtil = require('../../../../js/state/frameStateUtil')
 const ledgerUtil = require('../../../common/lib/ledgerUtil')
-
-// Style
-const globalStyles = require('../styles/global')
-const noFundVerifiedPublisherImage = require('../../../extensions/brave/img/urlbar/browser_URL_fund_no_verified.svg')
-const fundVerifiedPublisherImage = require('../../../extensions/brave/img/urlbar/browser_URL_fund_yes_verified.svg')
-const noFundUnverifiedPublisherImage = require('../../../extensions/brave/img/urlbar/browser_URL_fund_no.svg')
-const fundUnverifiedPublisherImage = require('../../../extensions/brave/img/urlbar/browser_URL_fund_yes.svg')
+const publisherUtil = require('../../../common/lib/publisherUtil')
 
 class PublisherToggle extends React.Component {
   constructor (props) {
@@ -51,22 +47,71 @@ class PublisherToggle extends React.Component {
   onAuthorizePublisher () {
     if (this.props.isVisibleInLedger) {
       appActions.changeSiteSetting(this.props.hostPattern, 'ledgerPayments', !this.props.isEnabledForPaymentsPublisher)
+    } else {
+      appActions.addPublisherToLedger(this.props.location, this.props.tabId)
+      appActions.changeSiteSetting(this.props.hostPattern, 'ledgerPayments', true)
+    }
+  }
+
+  setUpdateTimeout () {
+    const shouldSetTimeout = ledgerUtil.hasRequiredVisits(this.props.state, this.props.publisherKey)
+    const updateWait = ledgerUtil.getRemainingRequiredTime(this.props.state, this.props.publisherKey)
+    if (!shouldSetTimeout) {
+      return
+    }
+    let updateTimeout = setTimeout(() => {
+      appActions.onPublisherToggleUpdate(this.props.viewData)
+    }, updateWait)
+    this.setState({updateTimeout: updateTimeout})
+  }
+
+  clearUpdateTimeout () {
+    this.state && clearTimeout(this.state.updateTimeout)
+  }
+
+  componentDidMount () {
+    if (!this.props.isVisibleInLedger) {
+      this.setUpdateTimeout()
+    }
+  }
+
+  componentWillUnmount () {
+    this.clearUpdateTimeout()
+  }
+
+  componentDidUpdate (prevProps) {
+    if (
+      !this.props.isVisibleInLedger &&
+      (
+        prevProps.location !== this.props.location ||
+        prevProps.publisherKey !== this.props.publisherKey
+      )
+    ) {
+      this.clearUpdateTimeout()
+      this.setUpdateTimeout()
     }
   }
 
   mergeProps (state, ownProps) {
     const currentWindow = state.get('currentWindow')
     const activeFrame = frameStateUtil.getActiveFrame(currentWindow) || Immutable.Map()
-    const location = activeFrame.get('location', '')
+    const tabId = activeFrame.get('tabId', tabState.TAB_ID_NONE)
+    const rawLocation = activeFrame.get('location', '')
+    const location = getUrlFromPDFUrl(rawLocation)
     const locationId = getBaseUrl(location)
-    const publisherKey = ledgerState.getLocationProp(state, locationId, 'publisher')
+    const publisherKey = ledgerState.getVerifiedPublisherLocation(state, locationId)
 
     const props = {}
     // used in renderer
+    props.state = state
+    props.tabId = tabId
+    props.location = location
+    props.publisherKey = publisherKey
+    props.viewData = {location, tabId}
+    props.isEnabled = publisherUtil.shouldEnableAddPublisherButton(state, rawLocation, publisherKey)
     props.isVisibleInLedger = ledgerUtil.visibleP(state, publisherKey)
     props.isEnabledForPaymentsPublisher = ledgerUtil.stickyP(state, publisherKey)
     props.isVerifiedPublisher = ledgerState.getPublisherOption(state, publisherKey, 'verified')
-
     // used in functions
     props.hostPattern = getHostPattern(publisherKey)
 
@@ -74,70 +119,38 @@ class PublisherToggle extends React.Component {
   }
 
   render () {
-    return <span
-      data-test-id='publisherButton'
-      data-test-authorized={this.props.isEnabledForPaymentsPublisher}
-      data-test-verified={this.props.isVerifiedPublisher}
-      className={css(styles.addPublisherButtonContainer)}>
-      <BrowserButton
-        custom={[
-          !this.props.isVisibleInLedger && styles.notVisible,
-          !this.props.isVisibleInLedger && this.props.isVerifiedPublisher && styles.noFundVerified,
-          !this.props.isVisibleInLedger && !this.props.isVerifiedPublisher && styles.noFundUnverified,
-          this.props.isVisibleInLedger && !this.props.isEnabledForPaymentsPublisher && this.props.isVerifiedPublisher && styles.noFundVerified,
-          this.props.isVisibleInLedger && !this.props.isEnabledForPaymentsPublisher && !this.props.isVerifiedPublisher && styles.noFundUnverified,
-          this.props.isVisibleInLedger && this.props.isEnabledForPaymentsPublisher && this.props.isVerifiedPublisher && styles.fundVerified,
-          this.props.isVisibleInLedger && this.props.isEnabledForPaymentsPublisher && !this.props.isVerifiedPublisher && styles.fundUnverified
-        ]}
-        l10nId={this.l10nString}
-        onClick={this.onAuthorizePublisher}
+    return <NavigationButton
+      testId='publisherButton'
+      styles={[
+        styles.publisherButton,
+        this.props.isVisibleInLedger && this.props.isEnabledForPaymentsPublisher && styles.publisherButton_funding
+      ]}
+      disabled={!this.props.isEnabled}
+      l10nId={this.l10nString}
+      onClick={this.onAuthorizePublisher}
+      dataAttributes={{
+        'data-test-authorized': this.props.isEnabledForPaymentsPublisher,
+        'data-test-verified': this.props.isVerifiedPublisher
+      }}
+    >
+      <FundPublisherIcon
+        isVerified={this.props.isVerifiedPublisher}
+        isFunding={this.props.isVisibleInLedger && this.props.isEnabledForPaymentsPublisher}
       />
-    </span>
+    </NavigationButton>
   }
 }
 
 module.exports = ReduxComponent.connect(PublisherToggle)
 
 const styles = StyleSheet.create({
-  addPublisherButtonContainer: {
-    boxSizing: 'border-box',
-    display: 'flex',
-    alignItems: 'center',
-    height: globalStyles.spacing.buttonHeight,
-    width: globalStyles.spacing.buttonWidth,
-    minHeight: globalStyles.spacing.buttonHeight,
-    minWidth: globalStyles.spacing.buttonWidth,
-    borderWidth: '1px 1px 1px 0px',
-    borderStyle: 'solid',
-    borderColor: globalStyles.color.urlBarOutline,
-    borderRadius: '0 4px 4px 0',
-    borderTopLeftRadius: '0',
-    borderBottomLeftRadius: '0'
+  publisherButton: {
+    // (petemill): The current icon is not very well shaped for centering,
+    // especially without verified checkmark, but this padding fixes that.
+    padding: '3px 1px 3px 5px'
   },
 
-  noFundVerified: {
-    backgroundImage: `url(${noFundVerifiedPublisherImage})`,
-    backgroundSize: '18px',
-    marginLeft: '2px'
-  },
-
-  fundVerified: {
-    backgroundImage: `url(${fundVerifiedPublisherImage})`,
-    backgroundSize: '18px',
-    marginLeft: '2px'
-  },
-
-  noFundUnverified: {
-    backgroundImage: `url(${noFundUnverifiedPublisherImage})`,
-    backgroundSize: '18px'
-  },
-
-  fundUnverified: {
-    backgroundImage: `url(${fundUnverifiedPublisherImage})`,
-    backgroundSize: '18px'
-  },
-
-  notVisible: {
-    opacity: 0.3
+  publisherButton_funding: {
+    '--icon-line-color': 'white'
   }
 })

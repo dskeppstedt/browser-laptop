@@ -2,12 +2,13 @@
 const mockery = require('mockery')
 const assert = require('assert')
 const sinon = require('sinon')
-const {cookieExceptions, refererExceptions} = require('../../../js/data/siteHacks')
+const {cookieExceptions, getTestRefererException} = require('../../../js/data/siteHacks')
 
 require('../braveUnit')
 
 describe('filtering unit tests', function () {
   let filtering
+  let shouldFirewallCancel
   const fakeElectron = require('../lib/fakeElectron')
 
   before(function () {
@@ -19,10 +20,72 @@ describe('filtering unit tests', function () {
     mockery.registerMock('electron', fakeElectron)
     mockery.registerMock('./adBlock', {adBlockResourceName: 'adblock'})
     filtering = require('../../../app/filtering')
+    shouldFirewallCancel = require('../../../app/firewall').shouldCancel
   })
 
   after(function () {
     mockery.disable()
+  })
+
+  describe('firewall', function () {
+    let isResourceEnabledStub
+    describe('when firewall is disabled', function () {
+      before(function () {
+        isResourceEnabledStub = sinon.stub(filtering, 'isResourceEnabled').returns(false)
+      })
+      after(function () {
+        isResourceEnabledStub.restore()
+      })
+      it('does not block external URLs', function () {
+        const url = 'https://brave.com'
+        const firstPartyUrl = 'https://slashdot.org/'
+        assert.equal(shouldFirewallCancel(url, firstPartyUrl), false)
+      })
+      it('does not block internal URLs', function () {
+        const url = 'http://brave.local'
+        const firstPartyUrl = 'https://slashdot.org/'
+        assert.equal(shouldFirewallCancel(url, firstPartyUrl), false)
+      })
+    })
+
+    describe('when firewall is enabled', function () {
+      before(function () {
+        isResourceEnabledStub = sinon.stub(filtering, 'isResourceEnabled').returns(true)
+      })
+      after(function () {
+        isResourceEnabledStub.restore()
+      })
+      it('does not block external URLs', function () {
+        const url = 'https://brave.com'
+        const firstPartyUrl = 'https://slashdot.org/'
+        const ip = '23.21.132.31'
+        assert.equal(shouldFirewallCancel(url, firstPartyUrl, ip), false)
+      })
+      it('does block internal URLs', function () {
+        const url = 'http://brave.local'
+        const firstPartyUrl = 'https://slashdot.org/'
+        const ip = '23.21.132.31'
+        assert.equal(shouldFirewallCancel(url, firstPartyUrl, ip), true)
+      })
+      it('does block internal IPs', function () {
+        const url = 'http://brave.com'
+        const firstPartyUrl = 'https://slashdot.org/'
+        const ip = '::1'
+        assert.equal(shouldFirewallCancel(url, firstPartyUrl, ip), true)
+      })
+      it('blocks mismatched internal/external URLs', function () {
+        const url = 'http://brave.com:80/foobar'
+        const firstPartyUrl = 'http://localhost:8000/test'
+        const ip = '127.0.0.1'
+        assert.equal(shouldFirewallCancel(url, firstPartyUrl, ip), true)
+      })
+      it('does not block local requests on local page', function () {
+        const url = 'http://brave.local:80/foobar'
+        const firstPartyUrl = 'http://localhost:8000/test'
+        const ip = '127.0.0.1'
+        assert.equal(shouldFirewallCancel(url, firstPartyUrl, ip), false)
+      })
+    })
   })
 
   describe('applyCookieSetting', function () {
@@ -92,20 +155,49 @@ describe('filtering unit tests', function () {
         isResourceEnabledStub.restore()
       })
 
-      it('sets the referer to the origin', function () {
-        const url = 'https://cdnp3.stackassets.com/574db2390a12942fcef927356dadc6f9955edea9/store/fe3eb8fc014a20f2d25810b3c4f4b5b0db8695adfd7e8953721a55c51b90/sale_7217_primary_image.jpg'
-        const firstPartyUrl = 'https://slashdot.org/'
-        const requestHeaders = {
-          Referer: 'https://brave.com'
-        }
-        const result = filtering.applyCookieSetting(requestHeaders, url, firstPartyUrl, false)
+      describe('stubs referer for third-party referer', function () {
+        const firstPartyUrl = 'https://brave.com'
+        it('when the hosts are completely different', function () {
+          const url = 'https://cdnp3.stackassets.com/574db2390a12942fcef927356dadc6f9955edea9/store/fe3eb8fc014a20f2d25810b3c4f4b5b0db8695adfd7e8953721a55c51b90/sale_7217_primary_image.jpg'
+          const requestHeaders = {
+            Referer: 'https://brave.com'
+          }
+          const result = filtering.applyCookieSetting(requestHeaders, url, firstPartyUrl, false)
+          assert.equal(result.Referer, 'https://cdnp3.stackassets.com')
+        })
+        it('when the hosts have different base domains according to the PSL', function () {
+          const url = 'https://diracdeltas.github.io/foo?abc#test'
+          const requestHeaders = {
+            Referer: 'https://github.io'
+          }
+          const result = filtering.applyCookieSetting(requestHeaders, url, firstPartyUrl, false)
+          assert.equal(result.Referer, 'https://diracdeltas.github.io')
+        })
+      })
 
-        assert.equal(result.Referer, 'https://cdnp3.stackassets.com')
+      describe('does not change referer for first-party referer', function () {
+        const firstPartyUrl = 'https://brave.com'
+        it('keeps referer when hosts are the same', function () {
+          const url = 'https://test.github.io/test'
+          const requestHeaders = {
+            Referer: 'https://test.github.io/foo'
+          }
+          const result = filtering.applyCookieSetting(requestHeaders, url, firstPartyUrl, false)
+          assert.equal(result.Referer, 'https://test.github.io/foo')
+        })
+        it('keeps referer when hosts share a baseDomain', function () {
+          const url = 'https://docs.google.com'
+          const requestHeaders = {
+            Referer: 'https://2.drive.google.com/mydocument#abc'
+          }
+          const result = filtering.applyCookieSetting(requestHeaders, url, firstPartyUrl, false)
+          assert.equal(result.Referer, 'https://2.drive.google.com/mydocument#abc')
+        })
       })
 
       describe('when there is a referer exception', function () {
         it('keeps the referer field', function () {
-          const url = 'https://' + refererExceptions[0]
+          const url = 'https://' + getTestRefererException()
           const firstPartyUrl = 'https://slashdot.org/'
           const requestHeaders = {
             Referer: 'https://brave.com'

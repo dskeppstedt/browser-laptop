@@ -9,9 +9,9 @@ const {StyleSheet, css} = require('aphrodite/no-important')
 // Components
 const ReduxComponent = require('../reduxComponent')
 const Dialog = require('./dialog')
-const FlyoutDialog = require('./flyoutDialog')
 const BrowserButton = require('../common/browserButton')
 const SwitchControl = require('./switchControl')
+const {PromptTextBox} = require('./textbox')
 
 // Actions
 const appActions = require('../../../../js/actions/appActions')
@@ -36,10 +36,19 @@ class MessageBox extends React.Component {
     super(props)
     this.onKeyDown = this.onKeyDown.bind(this)
     this.onSuppressChanged = this.onSuppressChanged.bind(this)
+    this.state = {
+      textInput: props.defaultPromptText
+    }
   }
 
   componentWillMount () {
     document.addEventListener('keydown', this.onKeyDown)
+  }
+
+  componentDidMount () {
+    if (this.props.allowInput) {
+      this.inputRef.select()
+    }
   }
 
   componentWillUnmount () {
@@ -82,6 +91,10 @@ class MessageBox extends React.Component {
       response.result = buttonId !== this.props.cancelId
     }
 
+    if (this.props.allowInput) {
+      response.input = this.state.textInput
+    }
+
     appActions.tabMessageBoxDismissed(tabId, response)
   }
 
@@ -112,6 +125,8 @@ class MessageBox extends React.Component {
     // used in renderer
     props.tabId = tabId
     props.message = messageBoxDetail.get('message')
+    props.allowInput = messageBoxDetail.get('allowInput')
+    props.defaultPromptText = messageBoxDetail.get('defaultPromptText')
     props.suppress = tabMessageBoxState.getSuppress(state, tabId)
     props.title = tabMessageBoxState.getTitle(state, tabId)
     props.showSuppress = tabMessageBoxState.getShowSuppress(state, tabId)
@@ -126,8 +141,8 @@ class MessageBox extends React.Component {
 
   render () {
     return <Dialog testId='messageBoxDialog'>
-      <FlyoutDialog
-        testId={'msgBoxTab_' + this.props.tabId}
+      <div className={css(commonStyles.flyoutDialog)}
+        data-test-id={'msgBoxTab_' + this.props.tabId}
         onKeyDown={this.onKeyDown}
       >
         <div className={css(styles.title)} data-test-id='msgBoxTitle'>
@@ -151,11 +166,26 @@ class MessageBox extends React.Component {
               />
               : null
           }
+          {
+            this.props.allowInput && (
+              <PromptTextBox
+                value={this.state.textInput}
+                inputRef={ref => {
+                  this.inputRef = ref
+                }}
+                onChange={e => {
+                  this.setState({
+                    textInput: e.target.value
+                  })
+                }}
+              />
+            )
+          }
           <div className={css(styles.buttons)} data-test-id='msgBoxButtons'>
             {this.messageBoxButtons}
           </div>
         </div>
-      </FlyoutDialog>
+      </div>
     </Dialog>
   }
 }

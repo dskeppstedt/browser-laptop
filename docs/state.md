@@ -33,9 +33,13 @@ AppStore
       ignoredTopSites: [string], // list of ignored sites
       pinnedTopSites: [string], // list of pinned sites to be used on gridLayout. Defaults to 1 Brave-related site; see data/newTabData.js => pinnedTopSites
       sites: [string], // list of sites to be used on gridLayout. Defaults to 6 Brave-related sites; see data/newTabData.js => topSites
-      updatedStamp: number // timestamp for when the data was last updated
+      updatedStamp: number, // timestamp for when the data was last updated
     },
     preferences: {
+      backupNotifyCount: number, // number of times user has been reminded to backup wallet
+      backupNotifyTimestamp: number, // number of milliseconds from the last reminder until the next
+      backupSucceeded: (boolean|undefined), // was last backup successful?
+      recoveryBalanceRecalculated: (boolean|undefined),
       recoverySucceeded: (boolean|undefined),
       updatedStamp: number
     }
@@ -63,8 +67,7 @@ AppStore
       parentFolderId: number,
       partitionNumber: number, // optionally specifies a specific session
       skipSync: boolean,
-      title: string,
-      width: float // bookmark text width
+      title: string
     }
   },
   bookmarkFolders: {
@@ -75,8 +78,7 @@ AppStore
       originalSeed: Array.<number>, // only set for bookmarks that have been synced before a sync profile reset
       parentFolderId: number, // set for bookmarks and bookmark folders only
       skipSync: boolean, // Set for objects FETCHed by sync
-      title: string,
-      width: float // bookmark folder text width
+      title: string
     }
   },
   cache: {
@@ -93,6 +95,10 @@ AppStore
     ledgerVideos: {
       [mediaKey]: {
         publisher: string // publisher key
+        // Twitch
+        event: string, // event that was send to Twitch
+        time: number, // timestamp that we will log in the ledger
+        status: string // playing status: playing or paused
       }
     }
   }
@@ -103,6 +109,8 @@ AppStore
     browserHistory: boolean,
     cachedImagesAndFiles: boolean,
     downloadHistory: boolean,
+    paymentHistory: boolean,
+    publishersClear: boolean,
     savedPasswords: boolean,
     savedSiteSettings: boolean
   },
@@ -206,6 +214,10 @@ AppStore
       created, boolean, // wallet is created
       creating: boolean, // wallet is being created
       currentRate: number,
+      grants: [{
+        amount: number,
+        expirationDate: number
+      }]
       hasBitcoinHandler: boolean, // brave browser has a `bitcoin:` URI handler
       monthlyAmounts: Array<float> // list of all monthly amounts for the contribution
       passphrase: string, // the BAT wallet passphrase
@@ -238,7 +250,9 @@ AppStore
         submissionStamp: number, // timestamp for this contribution
         viewingId: string, // UUIDv4 for this contribution
       }],
-      unconfirmed: string // unconfirmed balance in BAT.toFixed(2)
+      unconfirmed: string, // unconfirmed balance in BAT.toFixed(2)
+      userFunded: number, // amount funded by the user
+      userHasFunded: boolean // permanently true once user funds wallet
     },
     locations: {
       [url]: {
@@ -329,6 +343,7 @@ AppStore
       }
     }
     publisherTimestamp: number, // timestamp of last publisher update in the database
+    status: string, // ledger status
     synopsis: {
       options: {
         emptyScores: {
@@ -346,15 +361,18 @@ AppStore
       publishers: {
         [publisherId]: {
           duration: number,
+          faviconName: string,
           faviconURL: string,
           options: {
-            exclude: boolean,
+            exclude: boolean, // publisher should not be included, toggle is off
             verified: boolean,
             verifiedTimestamp: number, // timestamp of the last change
             stickyP: boolean
           },
           pinPercentage: number,
           protocol: string,
+          publisherURL: string,
+          providerName: string,
           scores: {
             concave: number,
             visits: number
@@ -373,12 +391,6 @@ AppStore
         }
       }
     }
-  },
-  migrations: {
-    batMercuryTimestamp: integer, // when session is upgraded (and this new schema added)
-    btc2BatTimestamp: integer, // when call was made to backend to convert BTC => BAT
-    btc2BatNotifiedTimestamp: integer, // when user was shown "wallet upgraded" notification
-    btc2BatTransitionPending: boolean // true if user is being shown transition screen
   },
   menu: {
     template: object // used on Windows and by our tests: template object with Menubar control
@@ -512,6 +524,7 @@ AppStore
   siteSettings: {
     [hostPattern]: {
       adControl: string, // (showBraveAds | blockAds | allowAdsAndTracking)
+      autoplay: boolean,
       cookieControl: string, // (block3rdPartyCookie | allowAllCookies | blockAllCookies)
       fingerprintingProtection: string, // (block3rdPartyFingerprinting | allowAllFingerprinting | blockAllFingerprinting)
       flash: (number|boolean), // approval expiration time if allowed, false if never allow
@@ -519,8 +532,7 @@ AppStore
       geolocationPermission: boolean,
       httpsEverywhere: boolean,
       ledgerPayments: boolean, // false if site should not be paid by the ledger. Defaults to true.
-      ledgerPaymentsShown: boolean, // false if site should not be paid by the ledger and should not be shown in the UI. Defaults to true.
-      ledgerPinPercentage: number, // 0 if not pinned, otherwise is pinned with defined percentage
+      ledgerPaymentsShown: boolean, // false if site has been deleted, should not be paid by the ledger and should not be shown in the UI. Defaults to true.
       mediaPermission: boolean,
       midiSysexPermission: boolean,
       notificationsPermission: boolean,
@@ -530,14 +542,14 @@ AppStore
       openExternalPermission: boolean,
       pointerLockPermission: boolean,
       protocolRegistrationPermission: boolean,
-      skipSync: boolean, // Set for objects FETCHed by sync
       runInsecureContent: boolean, // allow active mixed content
       safeBrowsing: boolean,
+      siteName: string, // display name of the publisher
+      skipSync: boolean, // Set for objects FETCHed by sync
       savePasswords: boolean, // only false or undefined/null
       shieldsUp: boolean,
       widevine: (number|boolean), // false = block widevine, 0 = allow once, 1 = allow always
-      zoomLevel: number,
-      autoplay: boolean,
+      zoomLevel: number
     }
   },
   defaultSiteSettingsListImported: boolean,
@@ -585,7 +597,8 @@ AppStore
       suppress: boolean, // if true, show a suppress checkbox (defaulted to not checked)
       title: string, // title is the source; ex: "brave.com says:"
     },
-    muted: boolean, // is the tab muted
+    muted: boolean, // is the tab muted,
+    zoomPercent: number, // current zoom levellast
     windowId: number // the windowId that contains the tab
     guestInstanceId: number,
     tabId: number
@@ -594,6 +607,10 @@ AppStore
     // Same as siteSettings but never gets written to disk
     // XXX: This was intended for Private Browsing but is currently unused.
   },
+  tor: {
+    percentInitialized: number, // percentage initialized
+    initializationError: string|boolean, // error message. false means successfully initialized.
+  },
   updates: {
     lastCheckTimestamp: boolean,
     metadata: {
@@ -601,7 +618,19 @@ AppStore
       notes: string // release notes for the active update
     },
     referralDownloadId: string, // download ID that is returned from the referral server
+    referralHeaders: [{
+      domains: Array<string>,
+      headers: [{
+        domains: Array<string>,
+        headers: { [headerName]: string },
+        cookieNames: Array<string>,
+        expiration: number
+      }],
+      cookieNames: Array<string>,
+      expiration: number
+    }],
     referralTimestamp: number, // timestamp when referral was accumulated (after ~30 days)
+    referralPage: string, // page that we open when browser starts
     referralPromoCode: string, // promo code for the referral
     status: string, // updateStatus from js/constants/updateStatus.js
     verbose: boolean // whether to show update UI for checking, downloading, and errors
@@ -617,10 +646,6 @@ AppStore
   },
   windows: [{
     // persistent properties
-    bookmarksToolbar: {
-      toolbar: Array<string>, // bookmark and folder keys that we want to display
-      other: Array<string> // bookmark and folder keys that we display in more menu (limited to 100)
-    },
     focused: boolean,
     height: number,
     left: number,
@@ -635,6 +660,7 @@ AppStore
     autocompleteURL: string, // ditto re: {searchTerms}
     searchURL: string // with replacement var in string: {searchTerms}
   },
+  windowReady: boolean // set to false on start; set to true when first window is ready
 }
 ```
 
@@ -676,7 +702,7 @@ WindowStore
   },
   cleanedOnShutdown: boolean, // whether app data was successfully cleared on shutdown
   closedFrames: [], // holds the same type of frame objects as frames
-  contextMenuDetail: {
+  contextMenuDetail: { // currently using uuid hack to avoid serializing click function in template
     bottom: number, // the bottom position of the context menu
     left: number, // the left position of the context menu
     maxHeight: number, // the maximum height of the context menu
@@ -696,8 +722,6 @@ WindowStore
   createdFaviconDirectory: boolean, // whether the ledger-favicons directory has been created already in the appData directory
   frames: [{
     aboutDetails: object, // details for about pages
-    activeShortcut: string, // set by the application store when the component should react to a shortcut
-    activeShortcutDetails: object, // additional parameters for the active shortcut action if any
     adblock: {
       blocked: Array<string>
     },
@@ -729,7 +753,6 @@ WindowStore
     isPrivate: boolean, // private browsing tab
     key: number,
     lastAccessedTime: datetime,
-    lastZoomPercentage: number, // last value that was used for zooming
     loading: boolean,
     location: string, // the currently navigated location
     modalPromptDetail: object,
@@ -816,6 +839,7 @@ WindowStore
     top: number // the top position of the popup window
   },
   previewFrameKey: number,
+  quarantineNeeded: boolean, // true if quarantine needed after auto-launching
   searchResults: array, // autocomplete server results if enabled
   ui: {
     bookmarksToolbar: {

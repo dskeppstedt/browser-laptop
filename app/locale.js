@@ -46,6 +46,8 @@ var rendererIdentifiers = function () {
     'openInNewSessionTabs',
     'openInNewPrivateTab',
     'openInNewPrivateTabs',
+    'openInNewTorTab',
+    'openInNewTorTabs',
     'openInNewTab',
     'openInNewTabs',
     'openAllInTabs',
@@ -60,12 +62,15 @@ var rendererIdentifiers = function () {
     'deleteBookmarks',
     'deleteHistoryEntry',
     'deleteHistoryEntries',
+    'deleteDomainFromHistory',
     'deleteLedgerEntry',
     'ledgerBackupText1',
     'ledgerBackupText2',
     'ledgerBackupText3',
     'ledgerBackupText4',
     'ledgerBackupText5',
+    'backupKeys',
+    'backupKeysNow',
     'editFolder',
     'editBookmark',
     'unmuteTabs',
@@ -133,6 +138,7 @@ var rendererIdentifiers = function () {
     'recentlyClosed',
     'recentlyVisited',
     'bookmarks',
+    'otherBookmarks',
     'addToFavoritesBar',
     'window',
     'minimize',
@@ -151,6 +157,7 @@ var rendererIdentifiers = function () {
     'hideOthers',
     'showAll',
     'newPrivateTab',
+    'newTorTab',
     'newSessionTab',
     'newWindow',
     'reopenLastClosedTab',
@@ -177,6 +184,7 @@ var rendererIdentifiers = function () {
     'forgetLearnedSpelling',
     'lookupSelection',
     'publisherMediaName',
+    'addToPublisherList',
     // Other identifiers
     'aboutBlankTitle',
     'urlCopied',
@@ -210,6 +218,10 @@ var rendererIdentifiers = function () {
     'smartphoneTitle',
     'updateLater',
     'updateHello',
+    'urlbarPlaceholder',
+    'urlbarPlaceholderTorSuccess',
+    'urlbarPlaceholderTorProgress',
+    'torConnectionError',
     // notifications
     'notificationPasswordWithUserName',
     'notificationUpdatePasswordWithUserName',
@@ -226,14 +238,14 @@ var rendererIdentifiers = function () {
     'no',
     'noThanks',
     'neverForThisSite',
-    'walletConvertedBackup',
-    'walletConvertedDismiss',
-    'walletConvertedLearnMore',
-    'walletConvertedToBat',
     'dappDetected',
     'dappDismiss',
     'dappEnableExtension',
     'banSiteConfirmation',
+    'cannotBanSiteOnReconcile',
+    'paymentsDeleteWalletConfirmation',
+    'messageBoxOk',
+    'messageBoxCancel',
     // other
     'passwordsManager',
     'extensionsManager',
@@ -257,6 +269,8 @@ var rendererIdentifiers = function () {
     'downloadPaused',
     'noDownloads',
     'torrentDesc',
+    'torrentBlockedInTor',
+    'torrentWarningOk',
     'multiSelectionBookmarks',
     // Caption buttons in titlebar (min/max/close - Windows only)
     'windowCaptionButtonMinimize',
@@ -284,7 +298,15 @@ var rendererIdentifiers = function () {
     'promotionGeneralErrorText',
     'promotionClaimedErrorMessage',
     'promotionClaimedErrorText',
-    'promotionClaimedErrorTitle'
+    'promotionClaimedErrorTitle',
+    'promotionCaptchaBlockTitle',
+    'promotionCaptchaBlockMessage',
+    'corruptedOverlayTitle',
+    'corruptedOverlayMessage',
+    'corruptedOverlayText',
+    'ledgerNetworkErrorTitle',
+    'ledgerNetworkErrorMessage',
+    'ledgerNetworkErrorText'
   ].concat(countryCodes).concat(availableLanguages)
 }
 
@@ -300,7 +322,13 @@ exports.translation = function (token, replacements = {}) {
   } else {
     // This will return an identifier in upper case useful for determining if a translation was not requested in the menu
     // identifiers above.
-    return token.toUpperCase()
+
+    let replacementText = ''
+    Object.keys(replacements).forEach(key => {
+      replacementText += `, ${key}/${replacements[key]}`
+    })
+
+    return token.toUpperCase() + replacementText
   }
 }
 

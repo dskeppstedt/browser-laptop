@@ -4,6 +4,19 @@
 
 const adobeRegex =
   new RegExp('//(get\\.adobe\\.com/([a-z_-]+/)*flashplayer|www\\.macromedia\\.com/go/getflash|www\\.adobe\\.com/go/getflash|helpx\\.adobe\\.com/flash-player/([a-z_-]+/)*flash-player)', 'i')
+const exemptHostRegex =
+  new RegExp('(\\.adobe\\.com|www\\.google(\\.\\w+){1,2}|^duckduckgo\\.com|^search\\.yahoo\\.com)$')
+
+function shouldIntercept(location) {
+  if (!location) {
+    return true
+  }
+
+  const { protocol, hostname, pathname } = location
+  return ['http:', 'https:'].includes(protocol) &&
+          !exemptHostRegex.test(hostname) &&
+          !['/search', '/search/'].includes(pathname)
+}
 
 function blockFlashDetection () {
   const handler = {
@@ -30,13 +43,13 @@ if (adobeRegex.test(window.location.href)) {
   }
 }
 
-if (chrome.contentSettings.flashEnabled == 'allow') {
+if (chrome.contentSettings.flashEnabled == 'allow' && !isTorTab()) {
   document.addEventListener('click', (e) => {
     let node = e.target
     while (!node.href && node.parentNode)
       node = node.parentNode
     const href = node.href
-    if (href && href.match(adobeRegex)) {
+    if (href && href.match(adobeRegex) && shouldIntercept(window.location)) {
       e.preventDefault()
       chrome.ipcRenderer.send('dispatch-action', JSON.stringify([{
         actionType: 'app-flash-permission-requested',
@@ -46,6 +59,6 @@ if (chrome.contentSettings.flashEnabled == 'allow') {
   })
 }
 
-if (chrome.contentSettings.plugins != 'allow') {
+if (chrome.contentSettings.plugins != 'allow' || isTorTab()) {
   executeScript(getBlockFlashPageScript())
 }

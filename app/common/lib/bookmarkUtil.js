@@ -22,6 +22,9 @@ const {getSetting} = require('../../../js/settings')
 const UrlUtil = require('../../../js/lib/urlutil')
 const {makeImmutable} = require('../state/immutableUtil')
 
+// Actions
+const appActions = require('../../../js/actions/appActions')
+
 const bookmarkHangerHeading = (editMode, isAdded) => {
   if (isAdded) {
     return 'bookmarkAdded'
@@ -36,23 +39,10 @@ const isBookmarkNameValid = (location) => {
   return location != null && location.trim().length > 0
 }
 
-const showOnlyText = () => {
-  const btbMode = getSetting(settings.BOOKMARKS_TOOLBAR_MODE)
-  return btbMode === bookmarksToolbarMode.TEXT_ONLY
-}
+const getBookmarksToolbarMode = (appState) =>
+  getSetting(settings.BOOKMARKS_TOOLBAR_MODE, appState && appState.get('settings'))
 
-const showTextAndFavicon = () => {
-  const btbMode = getSetting(settings.BOOKMARKS_TOOLBAR_MODE)
-  return btbMode === bookmarksToolbarMode.TEXT_AND_FAVICONS
-}
-
-const showOnlyFavicon = () => {
-  const btbMode = getSetting(settings.BOOKMARKS_TOOLBAR_MODE)
-  return btbMode === bookmarksToolbarMode.FAVICONS_ONLY
-}
-
-const showFavicon = () => {
-  const btbMode = getSetting(settings.BOOKMARKS_TOOLBAR_MODE)
+const showFavicon = (appState, btbMode = getBookmarksToolbarMode(appState)) => {
   return btbMode === bookmarksToolbarMode.TEXT_AND_FAVICONS ||
     btbMode === bookmarksToolbarMode.FAVICONS_ONLY
 }
@@ -198,8 +188,7 @@ const buildBookmark = (state, bookmarkDetail) => {
     themeColor: dataItem.get('themeColor'),
     type: siteTags.BOOKMARK,
     key: key,
-    skipSync: bookmarkDetail.get('skipSync', null),
-    width: 0
+    skipSync: bookmarkDetail.get('skipSync', null)
   })
 }
 
@@ -220,10 +209,16 @@ const buildEditBookmark = (oldBookmark, bookmarkDetail) => {
   return newBookmark.set('key', newKey)
 }
 
+const closeToolbarIfEmpty = (state) => {
+  const bookmarkBarItemCount = bookmarksState.getBookmarksWithFolders(state, 0).size
+  if (bookmarkBarItemCount === 0 && getSetting(settings.SHOW_BOOKMARKS_TOOLBAR, state.get('settings'))) {
+    appActions.changeSetting(settings.SHOW_BOOKMARKS_TOOLBAR, false)
+  }
+}
+
 module.exports = {
   bookmarkHangerHeading,
   isBookmarkNameValid,
-  showOnlyFavicon,
   showFavicon,
   getDNDBookmarkData,
   getDetailFromFrame,
@@ -233,8 +228,8 @@ module.exports = {
   updateTabBookmarked,
   updateActiveTabBookmarked,
   getKey,
-  showOnlyText,
-  showTextAndFavicon,
+  getBookmarksToolbarMode,
   buildBookmark,
-  buildEditBookmark
+  buildEditBookmark,
+  closeToolbarIfEmpty
 }

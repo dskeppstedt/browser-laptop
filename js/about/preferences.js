@@ -17,10 +17,12 @@ const {SettingTextbox} = require('../../app/renderer/components/common/textbox')
 const {SettingDropdown} = require('../../app/renderer/components/common/dropdown')
 const {DefaultSectionTitle} = require('../../app/renderer/components/common/sectionTitle')
 const BrowserButton = require('../../app/renderer/components/common/browserButton')
+const SitePermissionsPage = require('../../app/renderer/components/preferences/sitePermissionsPage')
 
 // Tabs
 const PaymentsTab = require('../../app/renderer/components/preferences/paymentsTab')
 const TabsTab = require('../../app/renderer/components/preferences/tabsTab')
+const ShieldsTab = require('../../app/renderer/components/preferences/shieldsTab')
 const SyncTab = require('../../app/renderer/components/preferences/syncTab')
 const PluginsTab = require('../../app/renderer/components/preferences/pluginsTab')
 const ExtensionsTab = require('../../app/renderer/components/preferences/extensionsTab')
@@ -33,6 +35,7 @@ const appConfig = require('../constants/appConfig')
 const preferenceTabs = require('../constants/preferenceTabs')
 const messages = require('../constants/messages')
 const settings = require('../constants/settings')
+const webrtcConstants = require('../constants/webrtcConstants')
 const {changeSetting} = require('../../app/renderer/lib/settingsUtil')
 const {passwordManagers, extensionIds} = require('../constants/passwordManagers')
 const {startsWithOption, newTabMode, bookmarksToolbarMode, fullscreenOption, autoplayOption} = require('../../app/common/constants/settingsEnums')
@@ -42,18 +45,9 @@ const appActions = require('../actions/appActions')
 const getSetting = require('../settings').getSetting
 const SortableTable = require('../../app/renderer/components/common/sortableTable')
 const searchProviders = require('../data/searchProviders')
+const keyCodes = require('../../app/common/constants/keyCodes')
 
-const adblock = appConfig.resourceNames.ADBLOCK
-const cookieblock = appConfig.resourceNames.COOKIEBLOCK
-const cookieblockAll = appConfig.resourceNames.COOKIEBLOCK_ALL
-const fingerprintingProtection = appConfig.resourceNames.FINGERPRINTING_PROTECTION
-const fingerprintingProtectionAll = appConfig.resourceNames.FINGERPRINTING_PROTECTION_ALL
-const adInsertion = appConfig.resourceNames.AD_INSERTION
-const trackingProtection = appConfig.resourceNames.TRACKING_PROTECTION
-const httpsEverywhere = appConfig.resourceNames.HTTPS_EVERYWHERE
-const safeBrowsing = appConfig.resourceNames.SAFE_BROWSING
-const noScript = appConfig.resourceNames.NOSCRIPT
-const flash = appConfig.resourceNames.FLASH
+const firewall = appConfig.resourceNames.FIREWALL
 
 const isDarwin = navigator.platform === 'MacIntel'
 
@@ -80,17 +74,6 @@ const permissionNames = {
   'flash': ['boolean', 'number'],
   'widevine': ['boolean', 'number'],
   'autoplay': ['boolean']
-}
-
-const braveryPermissionNames = {
-  'ledgerPaymentsShown': ['boolean', 'number'],
-  'shieldsUp': ['boolean'],
-  'adControl': ['string'],
-  'cookieControl': ['string'],
-  'safeBrowsing': ['boolean'],
-  'httpsEverywhere': ['boolean'],
-  'fingerprintingProtection': ['string'],
-  'noScript': ['boolean', 'number']
 }
 
 class GeneralTab extends ImmutableComponent {
@@ -307,6 +290,7 @@ class SearchTab extends ImmutableComponent {
       <SettingsList>
         <DefaultSectionTitle data-l10n-id='privateTabsSearchSettingsTitle' />
         <SettingCheckbox dataL10nId='useDuckDuckGoForPrivateSearch' prefKey={settings.USE_ALTERNATIVE_PRIVATE_SEARCH_ENGINE} settings={this.props.settings} onChangeSetting={this.props.onChangeSetting} />
+        <SettingCheckbox dataL10nId='useDuckDuckGoForPrivateSearchTor' prefKey={settings.USE_ALTERNATIVE_PRIVATE_SEARCH_ENGINE_TOR} settings={this.props.settings} onChangeSetting={this.props.onChangeSetting} />
       </SettingsList>
       <DefaultSectionTitle data-l10n-id='locationBarSettings' />
       <SettingsList>
@@ -320,252 +304,17 @@ class SearchTab extends ImmutableComponent {
   }
 }
 
-class SitePermissionsPage extends React.Component {
-  hasEntryForPermission (name) {
-    return this.props.siteSettings.some((value) => {
-      return value.get && this.props.names[name] ? this.props.names[name].includes(typeof value.get(name)) : false
-    })
-  }
-
-  isPermissionsNonEmpty () {
-    // Check whether there is at least one permission set
-    return this.props.siteSettings.some((value) => {
-      if (value && value.get) {
-        for (let name in this.props.names) {
-          const granted = value.get(name)
-          if (this.props.names[name].includes(typeof granted)) {
-            if (this.props.defaults) {
-              return this.props.defaults.get(name) !== granted
-            } else {
-              return true
-            }
-          }
-        }
-      }
-      return false
-    })
-  }
-
-  deletePermission (name, hostPattern) {
-    aboutActions.removeSiteSetting(hostPattern, name)
-  }
-
-  clearPermissions (name) {
-    aboutActions.clearSiteSettings(name)
-  }
-
-  render () {
-    return this.isPermissionsNonEmpty()
-    ? <div id='sitePermissionsPage'>
-      <DefaultSectionTitle data-l10n-id={this.props.defaults ? 'sitePermissionsExceptions' : 'sitePermissions'} />
-      <ul className={css(styles.sitePermissions)}>
-        {
-          Object.keys(this.props.names).map((name) =>
-            this.hasEntryForPermission(name)
-            ? <li>
-              <div>
-                <span data-l10n-id={name} className={css(styles.sitePermissions__permissionName)} />
-                <span className={css(styles.sitePermissions__clearAll)}>
-                  (
-                  <span className={css(styles.sitePermissions__clearAll__link)} data-l10n-id='clearAll'
-                    onClick={this.clearPermissions.bind(this, name)} />
-                  )
-                </span>
-              </div>
-              <ul className={css(styles.sitePermissions__list)}>
-                {
-                  this.props.siteSettings.map((value, hostPattern) => {
-                    if (!value.size) {
-                      return null
-                    }
-                    const granted = value.get(name)
-                    if (this.props.defaults &&
-                        this.props.defaults.get(name) === granted &&
-                        granted !== undefined) {
-                      return null
-                    }
-                    let statusText = ''
-                    let statusArgs
-                    if (this.props.names[name].includes(typeof granted)) {
-                      if (name === 'flash') {
-                        if (granted === 1) {
-                          // Flash is allowed just one time
-                          statusText = 'allowOnce'
-                        } else if (granted === false) {
-                          // Flash installer is never intercepted
-                          statusText = 'alwaysDeny'
-                        } else {
-                          // Show the number of days/hrs/min til expiration
-                          statusText = 'flashAllowAlways'
-                          statusArgs = {
-                            time: new Date(granted).toLocaleString()
-                          }
-                        }
-                      } else if (name === 'widevine') {
-                        if (granted === 1) {
-                          statusText = 'alwaysAllow'
-                        } else if (granted === 0) {
-                          statusText = 'allowOnce'
-                        } else {
-                          statusText = 'alwaysDeny'
-                        }
-                      } else if (name === 'noScript' && typeof granted === 'number') {
-                        if (granted === 1) {
-                          statusText = 'allowUntilRestart'
-                        } else if (granted === 0) {
-                          statusText = 'allowOnce'
-                        }
-                      } else if (typeof granted === 'string') {
-                        statusText = granted
-                      } else if (!this.props.defaults) {
-                        statusText = granted ? 'alwaysAllow' : 'alwaysDeny'
-                      } else {
-                        statusText = granted ? 'on' : 'off'
-                      }
-                      return <div className={css(styles.sitePermissions__list__item)}>
-                        <BrowserButton
-                          iconOnly
-                          iconClass={globalStyles.appIcons.remove}
-                          size='1rem'
-                          custom={styles.sitePermissions__list__item__button}
-                          onClick={this.deletePermission.bind(this, name, hostPattern)}
-                        />
-                        <span>{hostPattern + ':'}</span>
-                        <span className={css(styles.sitePermissions__list__item__status)}
-                          data-l10n-id={statusText}
-                          data-l10n-args={statusArgs ? JSON.stringify(statusArgs) : null} />
-                      </div>
-                    }
-                    return null
-                  })
-                }
-              </ul>
-            </li>
-            : null)
-        }
-      </ul>
-    </div>
-    : null
-  }
-}
-
-class ShieldsTab extends ImmutableComponent {
-  constructor () {
-    super()
-    this.onChangeAdControl = this.onChangeAdControl.bind(this)
-    this.onToggleHTTPSE = this.onToggleSetting.bind(this, httpsEverywhere)
-    this.onToggleSafeBrowsing = this.onToggleSetting.bind(this, safeBrowsing)
-    this.onToggleNoScript = this.onToggleSetting.bind(this, noScript)
-  }
-  onChangeAdControl (e) {
-    if (e.target.value === 'showBraveAds') {
-      aboutActions.setResourceEnabled(adblock, true)
-      aboutActions.setResourceEnabled(trackingProtection, true)
-      aboutActions.setResourceEnabled(adInsertion, true)
-    } else if (e.target.value === 'blockAds') {
-      aboutActions.setResourceEnabled(adblock, true)
-      aboutActions.setResourceEnabled(trackingProtection, true)
-      aboutActions.setResourceEnabled(adInsertion, false)
-    } else {
-      aboutActions.setResourceEnabled(adblock, false)
-      aboutActions.setResourceEnabled(trackingProtection, false)
-      aboutActions.setResourceEnabled(adInsertion, false)
-    }
-  }
-  onChangeCookieControl (e) {
-    aboutActions.setResourceEnabled(cookieblock, e.target.value === 'block3rdPartyCookie')
-    aboutActions.setResourceEnabled(cookieblockAll, e.target.value === 'blockAllCookies')
-  }
-  onChangeFingerprintingProtection (e) {
-    aboutActions.setResourceEnabled(fingerprintingProtection, e.target.value === 'block3rdPartyFingerprinting')
-    aboutActions.setResourceEnabled(fingerprintingProtectionAll, e.target.value === 'blockAllFingerprinting')
-  }
-  onToggleSetting (setting, e) {
-    aboutActions.setResourceEnabled(setting, e.target.value)
-  }
-  render () {
-    return <div id='shieldsContainer'>
-      <DefaultSectionTitle data-l10n-id='braveryDefaults' />
-      <SettingsList>
-        <SettingItem dataL10nId='adControl'>
-          <SettingDropdown
-            value={this.props.braveryDefaults.get('adControl')}
-            onChange={this.onChangeAdControl}>
-            <option data-l10n-id='showBraveAds' value='showBraveAds' />
-            <option data-l10n-id='blockAds' value='blockAds' />
-            <option data-l10n-id='allowAdsAndTracking' value='allowAdsAndTracking' />
-          </SettingDropdown>
-        </SettingItem>
-        <SettingItem dataL10nId='cookieControl'>
-          <SettingDropdown
-            value={this.props.braveryDefaults.get('cookieControl')}
-            onChange={this.onChangeCookieControl}>
-            <option data-l10n-id='block3rdPartyCookie' value='block3rdPartyCookie' />
-            <option data-l10n-id='allowAllCookies' value='allowAllCookies' />
-            <option data-l10n-id='blockAllCookies' value='blockAllCookies' />
-          </SettingDropdown>
-        </SettingItem>
-        <SettingItem dataL10nId='fingerprintingProtection'>
-          <SettingDropdown
-            value={this.props.braveryDefaults.get('fingerprintingProtection')}
-            onChange={this.onChangeFingerprintingProtection}>
-            <option data-l10n-id='block3rdPartyFingerprinting' value='block3rdPartyFingerprinting' />
-            <option data-l10n-id='allowAllFingerprinting' value='allowAllFingerprinting' />
-            <option data-l10n-id='blockAllFingerprinting' value='blockAllFingerprinting' />
-          </SettingDropdown>
-        </SettingItem>
-        <SettingCheckbox checked={this.props.braveryDefaults.get('httpsEverywhere')} dataL10nId='httpsEverywhere' onChange={this.onToggleHTTPSE} />
-        <SettingCheckbox checked={this.props.braveryDefaults.get('noScript')} dataL10nId='noScriptPref' onChange={this.onToggleNoScript} />
-        <SettingCheckbox checked={this.props.braveryDefaults.get('safeBrowsing')} dataL10nId='safeBrowsing' onChange={this.onToggleSafeBrowsing} />
-        {/* TODO: move this inline style to Aphrodite once refactored */}
-        <div style={{marginTop: '15px'}}>
-          <BrowserButton
-            primaryColor
-            l10nId='manageAdblockSettings'
-            onClick={aboutActions.createTabRequested.bind(null, {
-              url: 'about:adblock'
-            })} />
-        </div>
-      </SettingsList>
-      <DefaultSectionTitle data-l10n-id='shieldsPanelOptions' />
-      <SettingsList>
-        <SettingCheckbox dataL10nId='blockedCountBadge' prefKey={settings.BLOCKED_COUNT_BADGE} settings={this.props.settings} onChangeSetting={this.props.onChangeSetting} />
-        <SettingCheckbox
-          dataL10nId='compactBraveryPanel'
-          dataTestId='compactBraveryPanelSwitch'
-          prefKey={settings.COMPACT_BRAVERY_PANEL}
-          settings={this.props.settings}
-          onChangeSetting={this.props.onChangeSetting}
-        />
-      </SettingsList>
-      <SitePermissionsPage siteSettings={this.props.siteSettings}
-        names={braveryPermissionNames}
-        defaults={this.props.braveryDefaults.merge({
-          ledgerPaymentsShown: true, shieldsUp: true})
-        } />
-    </div>
-  }
-}
-
 class SecurityTab extends ImmutableComponent {
   constructor (e) {
     super()
     this.clearBrowsingDataNow = this.clearBrowsingDataNow.bind(this)
+    this.onToggleFirewall = this.onToggleFirewall.bind(this)
+  }
+  onToggleFirewall (e) {
+    aboutActions.setResourceEnabled(firewall, e.target.value)
   }
   clearBrowsingDataNow () {
     aboutActions.clearBrowsingDataNow()
-  }
-  onToggleFlash (e) {
-    aboutActions.setResourceEnabled(flash, e.target.value)
-    if (e.target.value !== true) {
-      // When flash is disabled, clear flash approvals
-      aboutActions.clearSiteSettings('flash', {
-        temporary: true
-      })
-      aboutActions.clearSiteSettings('flash', {
-        temporary: false
-      })
-    }
   }
   render () {
     const lastPassPreferencesUrl = ('chrome-extension://' + extensionIds[passwordManagers.LAST_PASS] + '/tabDialog.html?dialog=preferences&cmd=open')
@@ -580,6 +329,7 @@ class SecurityTab extends ImmutableComponent {
         <SettingCheckbox dataL10nId='autocompleteData' prefKey={settings.SHUTDOWN_CLEAR_AUTOCOMPLETE_DATA} settings={this.props.settings} onChangeSetting={this.props.onChangeSetting} />
         <SettingCheckbox dataL10nId='autofillData' prefKey={settings.SHUTDOWN_CLEAR_AUTOFILL_DATA} settings={this.props.settings} onChangeSetting={this.props.onChangeSetting} />
         <SettingCheckbox dataL10nId='savedSiteSettings' prefKey={settings.SHUTDOWN_CLEAR_SITE_SETTINGS} settings={this.props.settings} onChangeSetting={this.props.onChangeSetting} />
+        <SettingCheckbox dataL10nId='publishersClear' prefKey={settings.SHUTDOWN_CLEAR_PUBLISHERS} settings={this.props.settings} onChangeSetting={this.props.onChangeSetting} />
         {/* TODO: move this inline style to Aphrodite once refactored */}
         <div style={{marginTop: '15px'}}>
           <BrowserButton
@@ -668,6 +418,34 @@ class SecurityTab extends ImmutableComponent {
       <SettingsList>
         <SettingCheckbox dataL10nId='useSiteIsolation' prefKey={settings.SITE_ISOLATION_ENABLED} settings={this.props.settings} onChangeSetting={this.props.onChangeSetting} />
       </SettingsList>
+      <DefaultSectionTitle data-l10n-id='webrtcPolicy' />
+      <SettingsList>
+        <SettingDropdown
+          value={(
+            getSetting(settings.WEBRTC_POLICY, this.props.settings)
+          )}
+          onChange={changeSetting.bind(
+            null,
+            this.props.onChangeSetting,
+            settings.WEBRTC_POLICY
+          )}>
+          {
+            Object.keys(webrtcConstants)
+              .map((policy) => <option data-l10n-id={policy} value={webrtcConstants[policy]} />)
+          }
+        </SettingDropdown>
+        <label
+          className={css(styles.link)}
+          data-l10n-id='webrtcPolicyExplanation'
+          onClick={aboutActions.createTabRequested.bind(null, {
+            url: 'https://github.com/brave/browser-laptop/wiki/WebRTC-Custom-Settings'
+          })}
+        />
+      </SettingsList>
+      <DefaultSectionTitle data-l10n-id='firewall' />
+      <SettingsList>
+        <SettingCheckbox dataL10nId='useFirewall' checked={this.props.braveryDefaults.get(firewall)} onChange={this.onToggleFirewall} />
+      </SettingsList>
       <SitePermissionsPage siteSettings={this.props.siteSettings} names={permissionNames} />
       <div data-l10n-id='requiresRestart' className={css(commonStyles.requiresRestart)} />
     </div>
@@ -677,10 +455,14 @@ class SecurityTab extends ImmutableComponent {
 class AboutPreferences extends React.Component {
   constructor (props) {
     super(props)
+    this.focusElement = null
+    this.overlayName = ''
+    this.setFocusElement = element => {
+      this.focusElement = element
+    }
     this.state = {
-      bitcoinOverlayVisible: false,
-      qrcodeOverlayVisible: false,
       paymentHistoryOverlayVisible: false,
+      deletedSitesOverlayVisible: false,
       advancedSettingsOverlayVisible: false,
       ledgerBackupOverlayVisible: false,
       ledgerRecoveryOverlayVisible: false,
@@ -700,9 +482,7 @@ class AboutPreferences extends React.Component {
       siteSettings: Immutable.Map(),
       braveryDefaults: Immutable.Map(),
       ledgerData: Immutable.Map(),
-      syncData: Immutable.Map(),
-      firstRecoveryKey: '',
-      secondRecoveryKey: ''
+      syncData: Immutable.Map()
     }
 
     // Similar to tabFromCurrentHash, this allows to set
@@ -747,6 +527,7 @@ class AboutPreferences extends React.Component {
       ledgerRecoveryOverlayVisible: false
     })
     this.forceUpdate()
+    this.removeParams()
   }
 
   enableSyncRestore (enabled) {
@@ -774,6 +555,16 @@ class AboutPreferences extends React.Component {
       newState[params] = true
     }
     this.setState(newState)
+  }
+
+  /**
+   * Using the history API, this removes any parameters
+   * from the current URL, leaving only the needed hash (ex #payments)
+   * This does not reload the page, it only modifies the browser history state,
+   * which replaces what is entered in the address bar
+   */
+  removeParams () {
+    window.history.replaceState(null, null, `#${this.hash}`)
   }
 
   /**
@@ -849,25 +640,59 @@ class AboutPreferences extends React.Component {
       settings.SPELLCHECK_LANGUAGES
     ]
     if (settingsRequiringRestart.includes(key)) {
-      ipc.send(messages.PREFS_RESTART, key, value)
+      aboutActions.requireRestart(key, value)
     }
     if (key === settings.PAYMENTS_ENABLED && value === true) {
       this.createWallet()
     }
   }
 
+  /**
+   * Sets the overlay name listened to on escape key
+   * @param {string} name - Prefix name of the overlay
+   * @returns {void}
+   */
+  setOverlayName = (name) => {
+    this.overlayName = name
+    this.focusElement.focus()
+  }
+
+  /**
+   * Executes when navigating back and forth through a wizard dialog
+   * @returns {void}
+   */
+  onNavigate = () => {
+    this.focusElement.focus()
+  }
+
+  /**
+   * Listens for when 'escape' is pressed
+   * @param {event} e - current event
+   * @returns {void}
+   */
+  onEscape = (e) => {
+    if (e.keyCode === keyCodes.ESC && this.overlayName !== '') {
+      e.stopPropagation()
+      this.setOverlayVisible(false, this.overlayName)
+    }
+  }
+
   setOverlayVisible (isVisible, overlayName) {
     let stateDiff = {}
     stateDiff[`${overlayName}OverlayVisible`] = isVisible
-    if (overlayName === 'addFunds' && isVisible === false) {
-      // Hide the child overlays when the parent is closed
-      stateDiff['bitcoinOverlayVisible'] = false
-      stateDiff['qrcodeOverlayVisible'] = false
-    }
     this.setState(stateDiff)
-    // Tell ledger when Add Funds overlay is closed
-    if (isVisible === false && overlayName === 'addFunds') {
-      appActions.onAddFundsClosed()
+    if (isVisible === false) {
+      // Tell ledger when Add Funds overlay is closed
+      if (overlayName === 'addFunds') {
+        appActions.onAddFundsClosed()
+        appActions.onChangeAddFundsDialogStep('addFundsWizardMain')
+      } else if (overlayName === 'ledgerBackup' || overlayName === 'ledgerRecovery') {
+        this.setOverlayName('advancedSettings')
+        this.focusElement.focus()
+      } else {
+        this.setOverlayName('')
+      }
+      this.removeParams()
     }
   }
 
@@ -912,15 +737,19 @@ class AboutPreferences extends React.Component {
           syncAddOverlayVisible={this.state.syncAddOverlayVisible}
           syncNewDeviceOverlayVisible={this.state.syncNewDeviceOverlayVisible}
           syncQRVisible={this.state.syncQRVisible}
+          setOverlayName={this.setOverlayName}
+          onNavigate={this.onNavigate}
           showQR={() => {
             this.setState({
               syncQRVisible: true
             })
+            this.onNavigate()
           }}
           hideQR={() => {
             this.setState({
               syncQRVisible: false
             })
+            this.onNavigate()
           }}
           syncPassphraseVisible={this.state.syncPassphraseVisible}
           showPassphrase={() => {
@@ -943,18 +772,18 @@ class AboutPreferences extends React.Component {
         tab = <PaymentsTab settings={settings} siteSettings={siteSettings}
           braveryDefaults={braveryDefaults} ledgerData={ledgerData}
           onChangeSetting={this.onChangeSetting}
-          firstRecoveryKey={this.state.firstRecoveryKey}
-          secondRecoveryKey={this.state.secondRecoveryKey}
-          bitcoinOverlayVisible={this.state.bitcoinOverlayVisible}
-          qrcodeOverlayVisible={this.state.qrcodeOverlayVisible}
           paymentHistoryOverlayVisible={this.state.paymentHistoryOverlayVisible}
+          deletedSitesOverlayVisible={this.state.deletedSitesOverlayVisible}
           advancedSettingsOverlayVisible={this.state.advancedSettingsOverlayVisible}
           ledgerBackupOverlayVisible={this.state.ledgerBackupOverlayVisible}
           ledgerRecoveryOverlayVisible={this.state.ledgerRecoveryOverlayVisible}
           addFundsOverlayVisible={this.state.addFundsOverlayVisible}
           showOverlay={this.setOverlayVisible.bind(this, true)}
           hideOverlay={this.setOverlayVisible.bind(this, false)}
-          hideAdvancedOverlays={this.hideAdvancedOverlays.bind(this)} />
+          hideAdvancedOverlays={this.hideAdvancedOverlays.bind(this)}
+          setOverlayName={this.setOverlayName}
+          onNavigate={this.onNavigate}
+        />
         break
       case preferenceTabs.EXTENSIONS:
         tab = <ExtensionsTab extensions={extensions} settings={settings} onChangeSetting={this.onChangeSetting} />
@@ -974,7 +803,7 @@ class AboutPreferences extends React.Component {
         changeTab={this.changeTab.bind(this)}
         refreshHint={this.refreshHint.bind(this)}
         getNextHintNumber={this.getNextHintNumber.bind(this)} />
-      <div className='prefBody'>
+      <div className='prefBody' onKeyDown={(e) => this.onEscape(e)} ref={this.setFocusElement} tabIndex='0'>
         <div className='prefTabContainer'>
           {tab}
         </div>
@@ -986,51 +815,6 @@ class AboutPreferences extends React.Component {
 const styles = StyleSheet.create({
   appIcons_moreInfo: {
     marginLeft: '5px'
-  },
-
-  sitePermissions: {
-    listStyle: 'none',
-    margin: '20px'
-  },
-
-  sitePermissions__permissionName: {
-    fontWeight: 600
-  },
-
-  sitePermissions__clearAll: {
-    cursor: 'pointer',
-    color: globalStyles.color.gray,
-    textDecoration: 'underline',
-    marginLeft: '.5ch'
-  },
-
-  sitePermissions__clearAll__link: {
-    // override the global value
-    color: globalStyles.color.gray
-  },
-
-  sitePermissions__list: {
-    marginBottom: '1rem'
-  },
-
-  sitePermissions__list__item: {
-    display: 'flex',
-    alignItems: 'center',
-    lineHeight: 1.4
-  },
-
-  sitePermissions__list__item__button: {
-    marginRight: '.25rem',
-    color: globalStyles.color.braveOrange,
-
-    ':hover': {
-      color: globalStyles.color.braveOrange
-    }
-  },
-
-  sitePermissions__list__item__status: {
-    marginLeft: '.5ch',
-    fontStyle: 'italic'
   },
 
   sortableTable_searchTab: {
@@ -1058,6 +842,13 @@ const styles = StyleSheet.create({
 
   searchShortcutEntry: {
     fontSize: '1rem'
+  },
+
+  link: {
+    cursor: 'pointer',
+    fontSize: '14px',
+    lineHeight: '3em',
+    textDecoration: 'underline'
   }
 })
 

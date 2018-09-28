@@ -47,6 +47,23 @@ const styles = StyleSheet.create({
     fontSize: globalStyles.spacing.textAreaFontSize
   },
 
+  // Dialogs
+  flyoutDialog: {
+    background: globalStyles.color.toolbarBackground,
+    borderRadius: globalStyles.radius.borderRadius,
+    boxShadow: globalStyles.shadow.flyoutDialogBoxShadow,
+    color: '#000',
+    fontSize: '13px',
+    // Issue #7949
+    padding: `${globalStyles.spacing.dialogInsideMargin} 30px`,
+    position: 'absolute',
+    top: globalStyles.spacing.dialogTopOffset,
+    // Issue #7930
+    boxSizing: 'border-box',
+    maxWidth: '600px',
+    maxHeight: `calc(80vh - ${globalStyles.spacing.downloadsBarHeight})`
+  },
+
   // itemList.less
   listItem: {
     cursor: 'default',
@@ -129,6 +146,8 @@ const styles = StyleSheet.create({
   // notificationBar
   notificationBar: {
     '-webkit-app-region': 'no-drag',
+    position: 'relative',
+    zIndex: 500,
     display: 'inline-block',
     boxSizing: 'border-box',
     width: '100%',
@@ -147,7 +166,6 @@ const styles = StyleSheet.create({
   notificationBar__notificationItem: {
     backgroundColor: globalStyles.color.notificationItemColor,
     boxSizing: 'border-box',
-    boxShadow: `0 -1px 0 ${theme.tabsToolbar.border.color}`,
     lineHeight: '24px',
     padding: '8px 20px'
   },

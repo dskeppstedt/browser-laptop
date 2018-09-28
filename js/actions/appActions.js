@@ -37,6 +37,16 @@ const appActions = {
     })
   },
 
+  /**
+   * Dispatches an event to the main process to focus the active window,
+   * or create a new one if there is no active window.
+   */
+  focusOrCreateWindow: function () {
+    dispatch({
+      actionType: appConstants.APP_FOCUS_OR_CREATE_WINDOW
+    })
+  },
+
   windowReady: function (windowId, windowValue) {
     dispatch({
       actionType: appConstants.APP_WINDOW_READY,
@@ -97,10 +107,10 @@ const appActions = {
    * Frame props changed
    * @param {Object} frame
    */
-  frameChanged: function (frame) {
+  framesChanged: function (frames) {
     dispatch({
-      actionType: appConstants.APP_FRAME_CHANGED,
-      frame
+      actionType: appConstants.APP_FRAMES_CHANGED,
+      frames
     })
   },
 
@@ -130,10 +140,15 @@ const appActions = {
    * Tab moved event fired from muon
    * @param {Object} tabValue
    */
-  tabMoved: function (tabId) {
+  tabMoved: function (tabId, fromIndex, toIndex, windowId) {
     dispatch({
       actionType: appConstants.APP_TAB_MOVED,
-      tabId
+      tabId,
+      fromIndex,
+      toIndex,
+      queryInfo: {
+        windowId
+      }
     })
   },
 
@@ -189,6 +204,25 @@ const appActions = {
   },
 
   /**
+   * Dispatches a message to the store to indicate that the webview entered full screen mode.
+   *
+   * @param {Object} tabId - Tab id of the frame to put in full screen
+   * @param {boolean} isFullScreen - true if the webview is entering full screen mode.
+   * @param {boolean} showFullScreenWarning - true if a warning about entering full screen should be shown.
+   */
+  tabSetFullScreen: function (tabId, isFullScreen, showFullScreenWarning, windowId) {
+    dispatch({
+      actionType: appConstants.APP_TAB_SET_FULL_SCREEN,
+      tabId,
+      isFullScreen,
+      showFullScreenWarning,
+      queryInfo: {
+        windowId
+      }
+    })
+  },
+
+  /**
    * Menu item for closing tabs to the left has been clicked.
    * @param {Number} tabId The tabId woh's tabs to the left should be closed.
    */
@@ -235,12 +269,13 @@ const appActions = {
    * switch to it instead of creating a new one
    * @param {Boolean} isRestore when true, won't try to activate the new tab, even if the user preference indicates to
    */
-  createTabRequested: function (createProperties, activateIfOpen = false, isRestore = false) {
+  createTabRequested: function (createProperties, activateIfOpen = false, isRestore = false, focusWindow = false) {
     dispatch({
       actionType: appConstants.APP_CREATE_TAB_REQUESTED,
       createProperties,
       activateIfOpen,
-      isRestore
+      isRestore,
+      focusWindow
     })
   },
 
@@ -255,12 +290,14 @@ const appActions = {
    * A request for a URL load
    * @param {number} tabId - the tab ID to load the URL inside of
    * @param {string} url - The url to load
+   * @param {boolean} reloadMatchingUrl - would you like to force reload provided tab
    */
-  loadURLRequested: function (tabId, url) {
+  loadURLRequested: function (tabId, url, reloadMatchingUrl) {
     dispatch({
       actionType: appConstants.APP_LOAD_URL_REQUESTED,
       tabId,
-      url
+      url,
+      reloadMatchingUrl
     })
   },
 
@@ -301,6 +338,18 @@ const appActions = {
       changeInfo,
       queryInfo: {
         windowId: tabValue.get('windowId')
+      }
+    })
+  },
+
+  tabReplaced: function (oldTabId, newTabValue, windowId, isPermanent) {
+    dispatch({
+      actionType: appConstants.APP_TAB_REPLACED,
+      oldTabId,
+      newTabValue,
+      isPermanent,
+      queryInfo: {
+        windowId
       }
     })
   },
@@ -372,12 +421,23 @@ const appActions = {
 
   /**
    * Removes a site from the site list
-   * @param {string|Immutable.List} historyKey - Hisotry item key that we want to remove, can be list of keys as well
+   * @param {string|Immutable.List} historyKey - History item key that we want to remove, can be list of keys as well
    */
   removeHistorySite: function (historyKey) {
     dispatch({
       actionType: appConstants.APP_REMOVE_HISTORY_SITE,
       historyKey
+    })
+  },
+
+  /**
+   * Removes all sites for the given domain from the site list
+   * @param {string} domain - Domain of the sites we want to remove
+   */
+  removeHistoryDomain: function (domain) {
+    dispatch({
+      actionType: appConstants.APP_REMOVE_HISTORY_DOMAIN,
+      domain
     })
   },
 
@@ -781,10 +841,12 @@ const appActions = {
 
   /**
    * Dispatches a message when the app is shutting down.
+   * @param {boolean} restart - whether to restart after shutdown
    */
-  shuttingDown: function () {
+  shuttingDown: function (restart) {
     dispatch({
-      actionType: appConstants.APP_SHUTTING_DOWN
+      actionType: appConstants.APP_SHUTTING_DOWN,
+      restart
     })
   },
 
@@ -1137,23 +1199,6 @@ const appActions = {
       actionType: appConstants.APP_TAB_PINNED,
       tabId,
       pinned
-    })
-  },
-
-  /**
-   * Dispatches a message when a web contents is added
-   * @param {number} windowId - The windowId of the host window
-   * @param {object} frameOpts - frame options for the added web contents
-   * @param {object} tabValue - the created tab state
-   */
-  newWebContentsAdded: function (windowId, frameOpts, tabValue) {
-    dispatch({
-      actionType: appConstants.APP_NEW_WEB_CONTENTS_ADDED,
-      queryInfo: {
-        windowId
-      },
-      frameOpts,
-      tabValue
     })
   },
 
@@ -1659,6 +1704,13 @@ const appActions = {
     })
   },
 
+  onPublishersOptionUpdate: function (publishersArray) {
+    dispatch({
+      actionType: appConstants.APP_ON_PUBLISHERS_OPTION_UPDATE,
+      publishersArray
+    })
+  },
+
   onLedgerWalletCreate: function () {
     dispatch({
       actionType: appConstants.APP_ON_LEDGER_WALLET_CREATE
@@ -1772,37 +1824,6 @@ const appActions = {
     })
   },
 
-  onPinnedTabReorder: function (siteKey, destinationKey, prepend) {
-    dispatch({
-      actionType: appConstants.APP_ON_PINNED_TAB_REORDER,
-      siteKey,
-      destinationKey,
-      prepend
-    })
-  },
-
-  /**
-   * Dispatches a message that bookmark calculation was done
-   * @param bookmarkList {Object} - Object is a list of bookmarks with key, width and parentFolderId as a property
-   */
-  onBookmarkWidthChanged: function (bookmarkList) {
-    dispatch({
-      actionType: appConstants.APP_ON_BOOKMARK_WIDTH_CHANGED,
-      bookmarkList
-    })
-  },
-
-  /**
-   * Dispatches a message that bookmark calculation was done
-   * @param folderList {Object} - Object is a list of folders with key, width and parentFolderId as a property
-   */
-  onBookmarkFolderWidthChanged: function (folderList) {
-    dispatch({
-      actionType: appConstants.APP_ON_BOOKMARK_FOLDER_WIDTH_CHANGED,
-      folderList
-    })
-  },
-
   /**
    * Dispatches a message that window was resized
    * @param windowValue - window properties
@@ -1818,21 +1839,15 @@ const appActions = {
     })
   },
 
-  onBitcoinToBatNotified: function () {
+  /**
+   * Dispatches a message to add a given publisher to the ledger.
+   * @param location - the URL of the publisher
+   */
+  addPublisherToLedger: function (location, tabId = false) {
     dispatch({
-      actionType: appConstants.APP_ON_BTC_TO_BAT_NOTIFIED
-    })
-  },
-
-  onBitcoinToBatTransitioned: function () {
-    dispatch({
-      actionType: appConstants.APP_ON_BTC_TO_BAT_TRANSITIONED
-    })
-  },
-
-  onBitcoinToBatBeginTransition: function () {
-    dispatch({
-      actionType: appConstants.APP_ON_BTC_TO_BAT_BEGIN_TRANSITION
+      actionType: appConstants.APP_ADD_PUBLISHER_TO_LEDGER,
+      location,
+      tabId
     })
   },
 
@@ -1851,9 +1866,25 @@ const appActions = {
     })
   },
 
-  onPromotionClaim: function () {
+  onPromotionClick: function () {
     dispatch({
-      actionType: appConstants.APP_ON_PROMOTION_CLAIM
+      actionType: appConstants.APP_ON_PROMOTION_CLICK
+    })
+  },
+
+  onCaptchaResponse: function (response, body) {
+    dispatch({
+      actionType: appConstants.APP_ON_CAPTCHA_RESPONSE,
+      body,
+      response
+    })
+  },
+
+  onPromotionClaim: function (x, y) {
+    dispatch({
+      actionType: appConstants.APP_ON_PROMOTION_CLAIM,
+      x,
+      y
     })
   },
 
@@ -1894,12 +1925,12 @@ const appActions = {
     })
   },
 
-  onLedgerMediaData: function (url, type, tabId) {
+  onLedgerMediaData: function (url, type, details) {
     dispatch({
       actionType: appConstants.APP_ON_LEDGER_MEDIA_DATA,
       url,
       type,
-      tabId
+      details
     })
   },
 
@@ -1910,17 +1941,32 @@ const appActions = {
     })
   },
 
-  onReferralCodeRead: function (downloadId, promoCode) {
+  onReferralCodeRead: function (body) {
     dispatch({
       actionType: appConstants.APP_ON_REFERRAL_CODE_READ,
-      downloadId,
-      promoCode
+      body
     })
   },
 
   onReferralCodeFail: function () {
     dispatch({
       actionType: appConstants.APP_ON_REFERRAL_CODE_FAIL
+    })
+  },
+
+  onFetchReferralHeaders: function (error, response, body) {
+    dispatch({
+      actionType: appConstants.APP_ON_FETCH_REFERRAL_HEADERS,
+      error,
+      response,
+      body
+    })
+  },
+
+  onFileRecoveryKeys: function (file) {
+    dispatch({
+      actionType: appConstants.APP_ON_FILE_RECOVERY_KEYS,
+      file
     })
   },
 
@@ -1942,6 +1988,14 @@ const appActions = {
     })
   },
 
+  onLedgerPinPublisher: function (publisherKey, value) {
+    dispatch({
+      actionType: appConstants.APP_ON_LEDGER_PIN_PUBLISHER,
+      publisherKey,
+      value
+    })
+  },
+
   onLedgerMediaPublisher: function (mediaKey, response, duration, revisited) {
     dispatch({
       actionType: appConstants.APP_ON_LEDGER_MEDIA_PUBLISHER,
@@ -1949,6 +2003,108 @@ const appActions = {
       response,
       duration,
       revisited
+    })
+  },
+
+  onLedgerFuzzing: function (newStamp, pruned) {
+    dispatch({
+      actionType: appConstants.APP_ON_LEDGER_FUZZING,
+      newStamp,
+      pruned
+    })
+  },
+
+  onLedgerBackupSuccess: function () {
+    dispatch({
+      actionType: appConstants.APP_ON_LEDGER_BACKUP_SUCCESS
+    })
+  },
+
+  onWalletPropertiesError: function () {
+    dispatch({
+      actionType: appConstants.APP_ON_WALLET_PROPERTIES_ERROR
+    })
+  },
+
+  onWalletDelete: function () {
+    dispatch({
+      actionType: appConstants.APP_ON_WALLET_DELETE
+    })
+  },
+
+  onPublisherToggleUpdate: function (viewData) {
+    dispatch({
+      actionType: appConstants.APP_ON_PUBLISHER_TOGGLE_UPDATE,
+      viewData
+    })
+  },
+
+  onCaptchaClose: function () {
+    dispatch({
+      actionType: appConstants.APP_ON_CAPTCHA_CLOSE
+    })
+  },
+
+  tabInsertedToTabStrip: function (windowId, tabId, index) {
+    dispatch({
+      actionType: appConstants.APP_TAB_INSERTED_TO_TAB_STRIP,
+      queryInfo: {
+        windowId
+      },
+      tabId,
+      index,
+      windowId
+    })
+  },
+
+  tabDetachedFromTabStrip: function (windowId, index) {
+    dispatch({
+      actionType: appConstants.APP_TAB_DETACHED_FROM_TAB_STRIP,
+      index,
+      windowId
+    })
+  },
+
+  onTorInitError: function (message) {
+    dispatch({
+      actionType: appConstants.APP_ON_TOR_INIT_ERROR,
+      message
+    })
+  },
+
+  onTorInitSuccess: function () {
+    dispatch({
+      actionType: appConstants.APP_ON_TOR_INIT_SUCCESS
+    })
+  },
+
+  onTorInitPercentage: function (percentage) {
+    dispatch({
+      actionType: appConstants.APP_ON_TOR_INIT_PERCENTAGE,
+      percentage
+    })
+  },
+
+  setTorNewIdentity: function (tabId, url) {
+    dispatch({
+      actionType: appConstants.APP_SET_TOR_NEW_IDENTITY,
+      tabId,
+      url
+    })
+  },
+
+  restartTor: function () {
+    dispatch({
+      actionType: appConstants.APP_RESTART_TOR
+    })
+  },
+
+  recreateTorTab: function (torEnabled, tabId, index) {
+    dispatch({
+      actionType: appConstants.APP_RECREATE_TOR_TAB,
+      torEnabled,
+      tabId,
+      index
     })
   }
 }

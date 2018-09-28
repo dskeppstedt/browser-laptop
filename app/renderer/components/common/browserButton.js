@@ -13,11 +13,11 @@ class BrowserButton extends ImmutableComponent {
       styles.browserButton,
       this.props.primaryColor && [styles.browserButton_default, styles.browserButton_primaryColor],
       this.props.secondaryColor && [styles.browserButton_default, styles.browserButton_secondaryColor],
+      this.props.alertColor && [styles.browserButton_default, styles.browserButton_alertColor],
       this.props.subtleItem && [styles.browserButton_default, styles.browserButton_subtleItem],
       // actionItem is just subtleItem with a blue background
       this.props.actionItem &&
         [styles.browserButton_default, styles.browserButton_subtleItem, styles.browserButton_actionItem],
-      this.props.extensionItem && styles.browserButton_extensionItem,
       this.props.groupedItem && styles.browserButton_groupedItem,
       this.props.notificationItem && styles.browserButton_notificationItem,
       this.props.panelItem && styles.browserButton_panelItem,
@@ -60,14 +60,11 @@ class BrowserButton extends ImmutableComponent {
   render () {
     return <button
       disabled={this.props.disabled}
-      data-extension-button={this.props.extensionButton}
-      data-bookmarks-overflow-indicator={this.props.bookmarksOverflowIndicator}
       data-l10n-id={this.props.l10nId}
       data-test-id={this.props.testId}
       data-test2-id={this.props.test2Id}
       data-l10n-args={JSON.stringify(this.props.l10nArgs || {})}
       style={this.buttonStyle}
-      data-button-value={this.props.dataButtonValue}
       onClick={this.props.onClick}
       className={css(this.classNames, this.props.custom)}>
       {
@@ -93,7 +90,7 @@ const styles = StyleSheet.create({
     display: 'inline-block',
     borderRadius: '2px',
     textAlign: 'center',
-    transition: '.1s opacity, .1s background',
+    transition: '.12s opacity ease, .12s background ease, .12s color ease',
     userSelect: 'none',
     backgroundSize: '16px',
     backgroundPosition: 'center center',
@@ -168,8 +165,8 @@ const styles = StyleSheet.create({
 
   browserButton_primaryColor: {
     background: globalStyles.button.primary.background,
-    borderLeft: '2px solid transparent',
-    borderRight: '2px solid transparent',
+    borderLeft: `2px solid ${globalStyles.button.primary.gradientColor1}`,
+    borderRight: `2px solid ${globalStyles.button.primary.gradientColor2}`,
     borderTop: `2px solid ${globalStyles.button.primary.gradientColor1}`,
     borderBottom: `2px solid ${globalStyles.button.primary.gradientColor2}`,
     cursor: 'pointer',
@@ -196,12 +193,19 @@ const styles = StyleSheet.create({
     }
   },
 
-  browserButton_extensionItem: {
-    backgroundSize: 'contain',
-    height: '17px',
-    margin: '4px 0 0 0',
-    opacity: '0.85',
-    backgroundRepeat: 'no-repeat'
+  browserButton_alertColor: {
+    background: globalStyles.button.alert.background,
+    borderLeft: `2px solid ${globalStyles.button.alert.gradientColor1}`,
+    borderRight: `2px solid ${globalStyles.button.alert.gradientColor2}`,
+    borderTop: `2px solid ${globalStyles.button.alert.gradientColor1}`,
+    borderBottom: `2px solid ${globalStyles.button.alert.gradientColor2}`,
+    cursor: 'pointer',
+    fontWeight: 500,
+
+    ':hover': {
+      border: `2px solid ${globalStyles.button.alert.borderHoverColor}`,
+      color: globalStyles.button.alert.hoverColor
+    }
   },
 
   browserButton_groupedItem: {

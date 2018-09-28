@@ -22,6 +22,7 @@ const bookmarksState = require('../../../common/state/bookmarksState')
 const dragTypes = require('../../../../js/constants/dragTypes')
 const {iconSize} = require('../../../../js/constants/config')
 const siteTags = require('../../../../js/constants/siteTags')
+const {bookmarksToolbarMode} = require('../../../common/constants/settingsEnums')
 
 // Utils
 const {getCurrentWindowId} = require('../../currentWindow')
@@ -175,15 +176,17 @@ class BookmarkToolbarButton extends React.Component {
   mergeProps (state, ownProps) {
     const currentWindow = state.get('currentWindow')
     const activeFrame = frameStateUtil.getActiveFrame(currentWindow) || Immutable.Map()
+    const bookmarkDisplayMode = ownProps.bookmarkDisplayMode
     const bookmarkKey = ownProps.bookmarkKey
     let bookmark = bookmarksState.findBookmark(state, bookmarkKey)
 
     const draggingOverData = bookmarkUtil.getDNDBookmarkData(state, bookmarkKey)
 
     const props = {}
+
     // used in renderer
-    props.showFavicon = bookmarkUtil.showFavicon()
-    props.showOnlyFavicon = bookmarkUtil.showOnlyFavicon()
+    props.showFavicon = bookmarkUtil.showFavicon(state, bookmarkDisplayMode)
+    props.showOnlyFavicon = (bookmarkDisplayMode === bookmarksToolbarMode.FAVICONS_ONLY)
     props.favIcon = bookmark.get('favicon')
     props.title = bookmark.get('title')
     props.location = bookmark.get('location')
@@ -242,6 +245,7 @@ class BookmarkToolbarButton extends React.Component {
       draggable
       ref={(node) => { this.bookmarkNode = node }}
       title={hoverTitle}
+      data-bookmark-key={this.props.bookmarkKey}
       onClick={this.onClick}
       onMouseOver={this.onMouseOver}
       onDragStart={this.onDragStart}
@@ -312,21 +316,22 @@ module.exports = ReduxComponent.connect(BookmarkToolbarButton)
 
 const styles = StyleSheet.create({
   bookmarkToolbarButton: {
-    display: 'flex',
-    alignItems: 'center',
+    WebkitAppRegion: 'no-drag',
     boxSizing: 'border-box',
     borderRadius: '3px',
     color: globalStyles.color.mediumGray,
     cursor: 'default',
     fontSize: globalStyles.spacing.bookmarksItemFontSize,
     lineHeight: '1.3',
-    margin: `auto ${globalStyles.spacing.bookmarksItemMargin}`,
+    // margin-bottom hides the second row of items on the bookmark bar
+    margin: `0 ${globalStyles.spacing.bookmarksItemMargin} 0 ${globalStyles.spacing.bookmarksItemMargin}`,
     maxWidth: globalStyles.spacing.bookmarksItemMaxWidth,
     padding: `2px ${globalStyles.spacing.bookmarksItemPadding}`,
     textOverflow: 'ellipsis',
     userSelect: 'none',
     whiteSpace: 'nowrap',
-    WebkitAppRegion: 'no-drag',
+    display: 'flex',
+    alignItems: 'center',
 
     ':hover': {
       background: '#fff',

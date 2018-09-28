@@ -3,6 +3,7 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 const Immutable = require('immutable')
 const {getTargetAboutUrl} = require('../lib/appUrlUtil')
+const webrtcConstants = require('./webrtcConstants')
 
 // BRAVE_UPDATE_HOST should be set to the host name for the auto-updater server
 const updateHost = process.env.BRAVE_UPDATE_HOST || 'https://laptop-updates.brave.com'
@@ -19,7 +20,7 @@ module.exports = {
   name: 'Brave',
   contactUrl: 'mailto:support+laptop@brave.com',
   quitTimeout: isTest ? 3 * 1000 : 10 * 1000,
-  sessionSaveInterval: 1000 * 60 * 5,
+  sessionSaveInterval: process.env.BRAVE_SESSION_SAVE_INTERVAL * 1000 || 1000 * 60 * 5,
   resourceNames: {
     ADBLOCK: 'adblock',
     SAFE_BROWSING: 'safeBrowsing',
@@ -34,7 +35,8 @@ module.exports = {
     COOKIEBLOCK: 'cookieblock', // block 3p cookies and referer
     COOKIEBLOCK_ALL: 'cookieblockAll', // block all cookies and referer
     SITEHACK: 'siteHacks',
-    WEBTORRENT: 'webtorrent'
+    WEBTORRENT: 'webtorrent',
+    FIREWALL: 'firewall'
     // ... other optional resource files are identified by uuid such as for regional adblock
   },
   cookieblock: {
@@ -66,14 +68,14 @@ module.exports = {
     shields: false
   },
   adblock: {
-    alternateDataFiles: 'https://s3.amazonaws.com/adblock-data/{version}/{uuid}.dat',
-    url: 'https://s3.amazonaws.com/adblock-data/{version}/ABPFilterParserData.dat',
+    alternateDataFiles: 'https://adblock-data.s3.brave.com/{version}/{uuid}.dat',
+    url: 'https://adblock-data.s3.brave.com/{version}/ABPFilterParserData.dat',
     // version is specified in the ad-block library
     msBetweenRechecks: 1000 * 60 * 60 * 2, // 2 hours
     enabled: true
   },
   safeBrowsing: {
-    url: 'https://s3.amazonaws.com/adblock-data/{version}/SafeBrowsingData.dat',
+    url: 'https://adblock-data.s3.brave.com/{version}/SafeBrowsingData.dat',
     // version is specified in the ad-block library
     msBetweenRechecks: 1000 * 60 * 60 * 2, // 2 hours
     enabled: true
@@ -96,6 +98,9 @@ module.exports = {
   webtorrent: {
     enabled: true
   },
+  firewall: {
+    enabled: false
+  },
   adInsertion: {
     enabled: false,
     url: adHost
@@ -103,6 +108,9 @@ module.exports = {
   payments: {
     delayNotificationTryPayments: 1000 * 60 * 60 * 24 * 10, // 10 days (from firstRunTimestamp)
     defaultContributionAmount: 7.5
+  },
+  tor: {
+    partition: 'persist:tor'
   },
   updates: {
     // Check for front end updates every hour
@@ -147,7 +155,8 @@ module.exports = {
     'general.spellcheck-languages': Immutable.fromJS(['en-US']),
     'search.default-search-engine': 'Google',
     'search.offer-search-suggestions': false, // false by default for privacy reasons
-    'search.use-alternate-private-search-engine': false, // use true for DDG search in Private Tab
+    'search.use-alternate-private-search-engine': false,
+    'search.use-alternate-private-search-engine-tor': true,
     'tabs.switch-to-new-tabs': false,
     'tabs.paint-tabs': true,
     'tabs.tabs-per-page': 20,
@@ -213,6 +222,7 @@ module.exports = {
     'advanced.toolbar-ui-scale': 'normal',
     'advanced.swipe-nav-distance': 101,
     'advanced.payments-allow-promotions': true,
+    'advanced.webrtc.policy': webrtcConstants.default,
     'shutdown.clear-history': false,
     'shutdown.clear-downloads': false,
     'shutdown.clear-cache': false,
@@ -220,6 +230,7 @@ module.exports = {
     'shutdown.clear-autocomplete-data': false,
     'shutdown.clear-autofill-data': false,
     'shutdown.clear-site-settings': false,
+    'shutdown.clear-publishers': false,
     'extensions.pocket.enabled': false,
     'extensions.vimium.enabled': false,
     'extensions.honey.enabled': false,
@@ -232,6 +243,8 @@ module.exports = {
     'notification-reconcile-soon-timestamp': null,
     // debug
     'debug.manual-tab-discard.enabled': false,
+    'debug.verbose-tab-info.enabled': false,
+
     // DEPRECATED settings
     // DO NOT REMOVE OR CHANGE THESE VALUES
     // ########################

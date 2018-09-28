@@ -25,6 +25,14 @@ const sigmoid = (t) => {
 
 const ONE_DAY = 1000 * 60 * 60 * 24
 
+const searchSuggestionsEnabled = (state, tabId) => {
+  const frame = getFrameByTabId(state, tabId)
+  if (!frame || frame.get('isPrivate')) {
+    return false
+  }
+  return getSetting(settings.OFFER_SEARCH_SUGGESTIONS)
+}
+
 /*
  * Calculate the sorting priority for a history item based on number of
  * accesses and time since last access
@@ -124,9 +132,8 @@ const isParsedUrlSimpleDomainNameValue = (parsed) => {
  */
 const normalizeLocation = (location) => {
   if (typeof location === 'string') {
-    location = location.replace(/www\./, '')
-    location = location.replace(/^http:\/\//, '')
-    location = location.replace(/^https:\/\//, '')
+    // remove http://, https:// and www. from beginning of location string
+    location = location.replace(/^(https?:\/\/)?(www\.)?/, '')
   }
   return location
 }
@@ -250,8 +257,8 @@ const getSortByDomainForSites = (userInputLower, userInputHost) => {
     // what the user is entering as the host and the host is null.
     let host1 = s1.get('parsedUrl').host || s1.get('parsedUrl').pathname || s1.get('location') || ''
     let host2 = s2.get('parsedUrl').host || s2.get('parsedUrl').pathname || s2.get('location') || ''
-    host1 = host1.replace('www.', '')
-    host2 = host2.replace('www.', '')
+    host1 = normalizeLocation(host1)
+    host2 = normalizeLocation(host2)
 
     let pos1 = host1.indexOf(userInputHost)
     let pos2 = host2.indexOf(userInputHost)
@@ -287,8 +294,8 @@ const getSortByDomainForSites = (userInputLower, userInputHost) => {
  */
 const getSortByDomainForHosts = (userInputHost) => {
   return (host1, host2) => {
-    host1 = host1.replace('www.', '')
-    host2 = host2.replace('www.', '')
+    host1 = normalizeLocation(host1)
+    host2 = normalizeLocation(host2)
     let pos1 = host1.indexOf(userInputHost)
     let pos2 = host2.indexOf(userInputHost)
     if (pos1 !== -1 && pos2 === -1) {
@@ -564,7 +571,7 @@ const getSearchSuggestions = (state, tabId, urlLocationLower) => {
   return new Promise((resolve, reject) => {
     const mapListToElements = getMapListToElements(urlLocationLower)
     let suggestionsList = Immutable.List()
-    if (getSetting(settings.OFFER_SEARCH_SUGGESTIONS)) {
+    if (searchSuggestionsEnabled(state, tabId)) {
       const searchResults = state.get('searchResults')
       const sortHandler = getSortForSearchSuggestions(urlLocationLower)
       if (searchResults) {
@@ -630,7 +637,7 @@ const generateNewSearchXHRResults = debounce((state, windowId, tabId, input) => 
     ? frameSearchDetail.get('autocomplete')
     : searchDetail.get('autocompleteURL')
 
-  const shouldDoSearchSuggestions = getSetting(settings.OFFER_SEARCH_SUGGESTIONS) &&
+  const shouldDoSearchSuggestions = searchSuggestionsEnabled(state, tabId) &&
     autocompleteURL &&
     !isUrl(input) &&
     input.length !== 0

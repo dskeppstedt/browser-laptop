@@ -8,8 +8,16 @@ const electron = require('electron')
 const session = electron.session
 const underscore = require('underscore')
 const urlParse = require('../../app/common/urlParse')
+const ipc = electron.ipcMain
 
 var cachedDefaultSession = null
+var backgroundPageWebContents = null
+
+if (ipc) {
+  ipc.on('got-background-page-webcontents', (e) => {
+    backgroundPageWebContents = e.sender
+  })
+}
 
 const getDefaultSession = () => {
   if (!cachedDefaultSession) {
@@ -23,11 +31,12 @@ const getDefaultSession = () => {
  * Depends on there being a loaded browser window available.
  * @param {Object|string} options - options object or URL to load
  * @param {function.<Error, Object, string>} callback
+ * @param {Object=} session - muon session to use if not the default
  */
-module.exports.request = (options, callback) => {
+module.exports.request = (options, callback, session) => {
   var params
   var responseType = options.responseType || 'text'
-  var defaultSession = getDefaultSession()
+  var defaultSession = session || getDefaultSession()
 
   if (!defaultSession) return callback(new Error('Request failed, no session available'))
 
@@ -39,6 +48,10 @@ module.exports.request = (options, callback) => {
       payload: JSON.stringify(options.payload),
       payload_content_type: params.headers['content-type'] || 'application/json; charset=utf-8'
     })
+  }
+
+  if (typeof options.url !== 'string') {
+    return callback(new Error('URL is not valid'))
   }
 
   if (process.env.NODE_ENV === 'development' &&
@@ -83,4 +96,25 @@ module.exports.requestDataFile = (url, headers, path, reject, resolve) => {
       }
     })
   }
+}
+
+/**
+ * Fetches url, title, and image for a publishers site (Youtube, Twitch, etc.)
+ * See
+ * https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/fetch
+ * WARNING: the output of this function is untrusted. You should be careful not
+ *  to execute it as code!
+ * @param {string} url - url to fetch
+ * @param {Object} options - options to pass to window.fetch
+ * @param {Function({url: string, title: string, image: string, error: string})} callback
+ */
+module.exports.fetchPublisherInfo = (url, options, callback) => {
+  if (!backgroundPageWebContents) {
+    callback(new Error('Background page web contents not initialized.'), { url })
+    return
+  }
+  backgroundPageWebContents.send('fetch-publisher-info', url, options)
+  ipc.once('got-publisher-info-' + url, (e, response) => {
+    callback(response.error, response.body)
+  })
 }

@@ -25,6 +25,7 @@ const AddFundsDialog = require('./payment/addFundsDialog/addFundsDialog')
 const AddFundsDialogFooter = require('./payment/addFundsDialog/addFundsDialogFooter')
 const {AdvancedSettingsContent, AdvancedSettingsFooter} = require('./payment/advancedSettings')
 const {HistoryContent, HistoryFooter} = require('./payment/history')
+const {DeletedSitesFooter, DeletedSitesContent} = require('./payment/deletedSites')
 const {LedgerBackupContent, LedgerBackupFooter} = require('./payment/ledgerBackup')
 const {LedgerRecoveryContent, LedgerRecoveryFooter} = require('./payment/ledgerRecovery')
 
@@ -33,6 +34,7 @@ const appActions = require('../../../../js/actions/appActions')
 
 // State
 const ledgerState = require('../../../common/state/ledgerState')
+const ledgerStatuses = require('../../../common/constants/ledgerStatuses')
 
 // Style
 const globalStyles = require('../styles/global')
@@ -76,12 +78,12 @@ class PaymentsTab extends ImmutableComponent {
     return getSetting(settings.PAYMENTS_ENABLED, this.props.settings)
   }
 
-  get overlayContent () {
+  get addFundsDialogContent () {
     const ledgerData = this.props.ledgerData || Immutable.Map()
     const addresses = ledgerData.get('addresses') || Immutable.List()
     const walletQR = ledgerData.get('walletQR') || Immutable.List()
     const wizardData = ledgerData.get('wizardData') || Immutable.Map()
-    const funds = formatCurrentBalance(ledgerData)
+    const funds = formatCurrentBalance(ledgerData, ledgerData.get('balance'))
     const budget = ledgerState.getContributionAmount(null, ledgerData.get('contributionAmount'), this.props.settings)
     const minAmount = batToCurrencyString(budget, ledgerData)
 
@@ -94,21 +96,86 @@ class PaymentsTab extends ImmutableComponent {
     />
   }
 
-  get overlayFooter () {
+  get addFundsDialogFooter () {
     const ledgerData = this.props.ledgerData || Immutable.Map()
     const wizardData = ledgerData.get('wizardData') || Immutable.Map()
 
     return (
       <AddFundsDialogFooter
         addFundsDialog={wizardData}
+        onNavigate={this.props.onNavigate}
         onHide={this.props.hideOverlay.bind(this, 'addFunds')}
       />
     )
   }
 
-  get getOverlayFounds () {
+  get getOverlayFunds () {
     const ledgerData = this.props.ledgerData || Immutable.Map()
-    return formatCurrentBalance(ledgerData)
+    return formatCurrentBalance(ledgerData, ledgerData.get('balance'))
+  }
+
+  get deletedSitesFooter () {
+    return (
+      <DeletedSitesFooter
+        onHide={this.props.hideOverlay.bind(this, 'deletedSites')}
+      />
+    )
+  }
+
+  get deletedSites () {
+    const permissionName = 'ledgerPaymentsShown'
+    const defaults = (this.props.braveryDefaults || Immutable.Map()).merge({ledgerPaymentsShown: true})
+    const sites = []
+
+    if (!this.props.siteSettings) {
+      return sites
+    }
+
+    this.props.siteSettings.forEach((value, hostPattern) => {
+      if (!value.size) {
+        return
+      }
+
+      const granted = value.get(permissionName)
+      if (
+        defaults &&
+        defaults.get(permissionName) === granted &&
+        granted !== undefined
+      ) {
+        return
+      }
+
+      if (['boolean', 'number'].includes(typeof granted)) {
+        let siteName = null
+        if (value.has('siteName')) {
+          siteName = value.get('siteName')
+        }
+
+        sites.push({
+          siteName,
+          hostPattern
+        })
+      }
+    })
+
+    return sites
+  }
+
+  deletedSitesContent (sites) {
+    return <DeletedSitesContent
+      sites={sites}
+      onHide={this.props.hideOverlay.bind(this, 'deletedSites')}
+    />
+  }
+
+  showAdvancedSettings () {
+    this.props.showOverlay('advancedSettings')
+    this.props.setOverlayName('advancedSettings')
+  }
+
+  showPaymentHistory () {
+    this.props.showOverlay('paymentHistory')
+    this.props.setOverlayName('paymentHistory')
   }
 
   hideOverlay () {
@@ -118,8 +185,8 @@ class PaymentsTab extends ImmutableComponent {
 
   render () {
     const enabled = this.props.ledgerData.get('created')
-    const inTransition = this.props.ledgerData.getIn(['migration', 'btc2BatTransitionPending']) === true
-    const enableSettings = enabled && !inTransition
+    const deletedSites = this.deletedSites
+    const showDeletedSites = deletedSites.length > 0
 
     return <div className={css(styles.payments)} data-test-id='paymentsContainer'>
       {
@@ -127,10 +194,21 @@ class PaymentsTab extends ImmutableComponent {
         ? <ModalOverlay
           title={'addFundsHeader'}
           subTitle={'balance'}
-          subTitleArgs={this.getOverlayFounds}
-          content={this.overlayContent}
-          footer={this.overlayFooter}
+          subTitleArgs={this.getOverlayFunds}
+          content={this.addFundsDialogContent}
+          footer={this.addFundsDialogFooter}
           onHide={this.hideOverlay}
+        />
+        : null
+      }
+      {
+        this.enabled && this.props.deletedSitesOverlayVisible && showDeletedSites
+        ? <ModalOverlay
+          customDialogBodyWrapperClasses={css(styles.payments__deleted__wrapper)}
+          title={'deletedSitesHeader'}
+          content={this.deletedSitesContent(deletedSites)}
+          footer={this.deletedSitesFooter}
+          onHide={this.props.hideOverlay.bind(this, 'deletedSites')}
         />
         : null
       }
@@ -166,6 +244,8 @@ class PaymentsTab extends ImmutableComponent {
           footer={<AdvancedSettingsFooter
             showOverlay={this.props.showOverlay}
             hideOverlay={this.props.hideOverlay}
+            setOverlayName={this.props.setOverlayName}
+            paymentInProgress={this.props.ledgerData.get('status') === ledgerStatuses.IN_PROGRESS}
           />}
           onHide={this.props.hideOverlay.bind(this, 'advancedSettings')}
         />
@@ -179,6 +259,7 @@ class PaymentsTab extends ImmutableComponent {
             ledgerData={this.props.ledgerData}
           />}
           footer={<LedgerBackupFooter
+            onNavigate={this.props.onNavigate}
             hideOverlay={this.props.hideOverlay}
           />}
           onHide={this.props.hideOverlay.bind(this, 'ledgerBackup')}
@@ -187,17 +268,21 @@ class PaymentsTab extends ImmutableComponent {
       }
       {
         this.enabled && this.props.ledgerRecoveryOverlayVisible
-        ? <ModalOverlay title={'ledgerRecoveryTitle'}
+        ? <ModalOverlay
+          title={'ledgerRecoveryTitle'}
           content={<LedgerRecoveryContent
             ledgerData={this.props.ledgerData}
             hideAdvancedOverlays={this.props.hideAdvancedOverlays.bind(this)}
             handleRecoveryKeyChange={this.handleRecoveryKeyChange.bind(this)}
+            setOverlayName={this.props.setOverlayName}
           />}
           footer={<LedgerRecoveryFooter
             state={this.state}
             hideOverlay={this.props.hideOverlay}
+            setOverlayName={this.props.setOverlayName}
           />}
           onHide={this.props.hideOverlay.bind(this, 'ledgerRecovery')}
+          customDialogFooterClasses={css(styles.recoveryFooter)}
         />
         : null
       }
@@ -268,16 +353,16 @@ class PaymentsTab extends ImmutableComponent {
                   )}
                     data-test-id={this.hasWalletTransaction ? 'paymentHistoryButton' : 'disabledPaymentHistoryButton'}
                     data-l10n-id='paymentHistoryIcon'
-                    onClick={(enabled && this.hasWalletTransaction) ? this.props.showOverlay.bind(this, 'paymentHistory') : () => {}}
+                    onClick={(enabled && this.hasWalletTransaction) ? this.showPaymentHistory.bind(this, 'paymentHistory') : () => {}}
                   />
                   <a className={css(
                     styles.payments__title__actions__icons__icon,
                     styles.payments__title__actions__icons__icon_settings,
-                    !enableSettings && styles.payments__title__actions__icons__icon_disabled
+                    !enabled && styles.payments__title__actions__icons__icon_disabled
                   )}
-                    data-test-id={!enableSettings ? 'advancedSettingsButtonLoading' : 'advancedSettingsButton'}
+                    data-test-id={!enabled ? 'advancedSettingsButtonLoading' : 'advancedSettingsButton'}
                     data-l10n-id='advancedSettingsIcon'
-                    onClick={enableSettings ? this.props.showOverlay.bind(this, 'advancedSettings') : () => {}}
+                    onClick={enabled ? this.showAdvancedSettings.bind(this) : () => {}}
                   />
                 </div>
               </div>
@@ -288,11 +373,15 @@ class PaymentsTab extends ImmutableComponent {
       </SectionTitleWrapper>
       {
         this.enabled
-        ? <EnabledContent settings={this.props.settings}
+        ? <EnabledContent
+          settings={this.props.settings}
           onChangeSetting={this.props.onChangeSetting}
           ledgerData={this.props.ledgerData}
           showOverlay={this.props.showOverlay}
           siteSettings={this.props.siteSettings}
+          showDeletedSites={showDeletedSites}
+          setOverlayName={this.props.setOverlayName}
+          paymentInProgress={this.props.ledgerData.get('status') === ledgerStatuses.IN_PROGRESS}
         />
         : <DisabledContent
           ledgerData={this.props.ledgerData}
@@ -455,6 +544,16 @@ const styles = StyleSheet.create({
     // TODO: Add 'position: relative' and 'bottom: 1px' for macOS (en_US) only.
     paddingLeft: '.75ch',
     color: globalStyles.color.braveOrange
+  },
+
+  payments__deleted__wrapper: {
+    maxHeight: '500px',
+    borderRadius: 0,
+    overflowY: 'scroll'
+  },
+
+  recoveryFooter: {
+    justifyContent: 'normal'
   }
 })
 

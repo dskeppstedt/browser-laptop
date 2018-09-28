@@ -5,16 +5,19 @@
 'use strict'
 
 // characters, then : with optional //
-const rscheme = /^(?:[a-z\u00a1-\uffff0-9-+]+)(?::(\/\/)?)(?!\d)/i
+const rscheme = /^(?:[a-z\u00a1-\uffff0-9-+]{2,})(?::(\/\/)?)(?!\d)/i
 const httpScheme = 'http://'
 const httpsScheme = 'https://'
 const fileScheme = 'file://'
+const windowsFileScheme = /[a-z]:\\/i
 const defaultScheme = httpScheme
 const os = require('os')
 const punycode = require('punycode/')
 const urlParse = require('../../app/common/urlParse')
 const urlFormat = require('url').format
 const pdfjsExtensionId = require('../constants/config').PDFJSExtensionId
+const ip = require('ip')
+const pdfjsBaseUrl = `chrome-extension://${pdfjsExtensionId}/`
 
 /**
  * A simple class for parsing and dealing with URLs.
@@ -65,6 +68,11 @@ const UrlUtil = {
       input = fileScheme + input
     }
 
+    if (windowsFileScheme.test(input)) {
+      input = input.replace(/\\/g, '/')
+      input = `${fileScheme}/${input}`
+    }
+
     // If there's no scheme, prepend the default scheme
     if (!UrlUtil.hasScheme(input)) {
       input = defaultScheme + input
@@ -109,12 +117,13 @@ const UrlUtil = {
     // - starts with "?" or "."
     // - contains "? "
     // - ends with "." (and was not preceded by a domain or /)
-    const case2Reg = /(^\?)|(\?.+\s)|(^\.)|(^[^.+]*[^/]*\.$)/
+    const case2Reg = /(^\?)|(\?\s+)|(^\.)|(^[^.+]*[^/]*\.$)/
     // for cases, pure string
     const case3Reg = /[?./\s:]/
     // for cases, data:uri, view-source:uri and about
     const case4Reg = /^(data|view-source|mailto|about|chrome-extension|chrome-devtools|magnet|chrome):.*/
-
+    // for Windows and unix file paths
+    const case5Reg = /(?:^\/)|(?:^[a-zA-Z]:\\)/
     let str = input.trim()
     const scheme = UrlUtil.getScheme(str)
 
@@ -125,7 +134,7 @@ const UrlUtil = {
       return true
     }
     if (case2Reg.test(str) || !case3Reg.test(str) ||
-        (scheme === undefined && /\s/g.test(str))) {
+    (scheme === undefined && /\s/g.test(str) && !case5Reg.test(str))) {
       return true
     }
     if (case4Reg.test(str)) {
@@ -157,7 +166,7 @@ const UrlUtil = {
     }
 
     try {
-      return new window.URL(input).href
+      return (typeof window === 'undefined') ? input : new window.URL(input).href
     } catch (e) {
       return input
     }
@@ -334,7 +343,7 @@ const UrlUtil = {
    * @return {string}
    */
   getLocationIfPDF: function (url) {
-    if (!url || url.indexOf(`chrome-extension://${pdfjsExtensionId}/`) === -1) {
+    if (!UrlUtil.isUrlPDF(url)) {
       return url
     }
 
@@ -346,11 +355,22 @@ const UrlUtil = {
         return query.file
       }
     }
-    return url.replace(`chrome-extension://${pdfjsExtensionId}/`, '')
+    return UrlUtil.getUrlFromPDFUrl(url)
+  },
+
+  isUrlPDF: function (url) {
+    return (url && url.startsWith(pdfjsBaseUrl)) || false
+  },
+
+  getUrlFromPDFUrl: function (url) {
+    if (!UrlUtil.isUrlPDF(url)) {
+      return url
+    }
+
+    return url.replace(pdfjsBaseUrl, '')
   },
 
   getPDFViewerUrl: function (url) {
-    const pdfjsBaseUrl = `chrome-extension://${pdfjsExtensionId}/`
     const viewerBaseUrl = `${pdfjsBaseUrl}content/web/viewer.html`
     return `${viewerBaseUrl}?file=${encodeURIComponent(url)}`
   },
@@ -387,7 +407,9 @@ const UrlUtil = {
       parsed.hostname = punycode.toASCII(parsed.hostname)
       return urlFormat(parsed)
     } catch (e) {
-      return punycode.toASCII(url)
+      var splitUrl = url.split('@')
+      splitUrl = splitUrl.map(str => punycode.toASCII(str))
+      return splitUrl.join('@')
     }
   },
 
@@ -466,11 +488,12 @@ const UrlUtil = {
     // parsed.origin is specific to muon.url.parse
     if (parsed.origin !== undefined) {
       if (parsed.protocol === 'about:') {
-        return [parsed.protocol, parsed.path].join('')
+        return [parsed.protocol, parsed.path.replace(/\/.*/, '')].join('')
       }
       return parsed.origin.replace(/\/+$/, '')
     }
     if (parsed.host && parsed.protocol) {
+      // parsed.slashes is specific to node's url.parse
       return parsed.slashes ? [parsed.protocol, parsed.host].join('//') : [parsed.protocol, parsed.host].join('')
     }
     return null
@@ -484,6 +507,41 @@ const UrlUtil = {
     return url
       .replace(/((#?\/?)|(\/#?))$/, '') // remove trailing # and /
       .trim() // remove whitespaces
+  },
+
+  /**
+   * Whether a URL is an internal address
+   * @param {string} url
+   * @returns {boolean}
+   */
+  isInternalUrl: (url) => {
+    if (!url) {
+      return false
+    }
+    // TODO: make these user-configurable
+    const whitelistSuffixes = ['local', 'localhost']
+    let hostname = urlParse(url).hostname
+    if (hostname && hostname.startsWith('[') && hostname.endsWith(']')) {
+      // Strip brackets from ipv6 address for ip.isPrivate
+      hostname = hostname.slice(1, hostname.length - 1)
+    }
+    return ip.isPrivate(hostname) || hostname === 'localhost' || whitelistSuffixes.some((suffix) => {
+      return hostname && hostname.endsWith(`.${suffix}`)
+    })
+  },
+
+  /**
+   * Whether a site is a Tor Hidden Service .onion URL
+   * @param {string} url
+   * @return {boolean}
+   */
+  isOnionUrl: (url) => {
+    if (typeof url !== 'string') { return false }
+    const hostname = urlParse(url).hostname
+    if (!hostname) {
+      return false
+    }
+    return hostname.endsWith('.onion')
   }
 }
 

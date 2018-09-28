@@ -3,7 +3,8 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 const providers = {
-  YOUTUBE: 'youtube'
+  YOUTUBE: 'youtube',
+  TWITCH: 'twitch'
 }
 
 module.exports = providers

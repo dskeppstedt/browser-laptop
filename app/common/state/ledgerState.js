@@ -16,9 +16,9 @@ const settings = require('../../../js/constants/settings')
 
 // Utils
 const getSetting = require('../../../js/settings').getSetting
-const siteSettings = require('../../../js/state/siteSettings')
-const urlUtil = require('../../../js/lib/urlutil')
 const {makeImmutable, isMap} = require('../../common/state/immutableUtil')
+const urlParse = require('../../common/urlParse')
+const getBaseDomain = require('../../../js/lib/baseDomain').getBaseDomain
 
 const validateState = function (state) {
   state = makeImmutable(state)
@@ -67,12 +67,28 @@ const ledgerState = {
     return state.setIn(['ledger', 'locations', url, prop], value)
   },
 
+  getVerifiedPublisherLocation: (state, url) => {
+    state = validateState(state)
+    if (url == null) {
+      return null
+    }
+
+    let publisherKey = state.getIn(['ledger', 'locations', url, 'publisher'])
+
+    if (!publisherKey) {
+      const parsedUrl = urlParse(url) || {}
+      if (parsedUrl.hostname != null) {
+        publisherKey = getBaseDomain(parsedUrl.hostname)
+      }
+    }
+    return publisherKey
+  },
+
   getLocationProp: (state, url, prop) => {
     state = validateState(state)
     if (url == null || prop == null) {
       return null
     }
-
     return state.getIn(['ledger', 'locations', url, prop])
   },
 
@@ -106,21 +122,25 @@ const ledgerState = {
     return state
   },
 
-  resetSynopsis: (state, options = false) => {
+  deleteSynopsis: (state) => {
     state = validateState(state)
-
-    if (options) {
-      state = state
-        .setIn(['ledger', 'synopsis', 'options'], Immutable.Map())
-        .setIn(['ledger', 'about', 'synopsisOptions'], Immutable.Map())
-    }
-
     state = pageDataState.resetPageData(state)
 
     return state
-      .setIn(['ledger', 'synopsis', 'publishers'], Immutable.Map())
-      .setIn(['ledger', 'locations'], Immutable.Map())
-      .setIn(['ledger', 'about', 'synopsis'], Immutable.List())
+      .setIn(['cache', 'ledgerVideos'], Immutable.Map())
+      .set('ledger', Immutable.fromJS({
+        about: {
+          synopsis: [],
+          synopsisOptions: {}
+        },
+        info: {},
+        locations: {},
+        synopsis: {
+          options: {},
+          publishers: {}
+        },
+        promotion: {}
+      }))
   },
 
   /**
@@ -177,6 +197,18 @@ const ledgerState = {
     }
 
     return state.setIn(['ledger', 'synopsis', 'publishers', key, prop], value)
+  },
+
+  resetPublishers: (state) => {
+    state = validateState(state)
+    state = pageDataState.resetPageData(state)
+
+    return state
+      .setIn(['ledger', 'synopsis', 'publishers'], Immutable.Map())
+      .setIn(['ledger', 'locations'], Immutable.Map())
+      .setIn(['ledger', 'about', 'synopsis'], Immutable.List())
+      .setIn(['ledger', 'publisherTimestamp'], 0)
+      .setIn(['cache', 'ledgerVideos'], Immutable.Map())
   },
 
   /**
@@ -288,6 +320,11 @@ const ledgerState = {
       if (paymentId) {
         newData = newData.set('paymentId', paymentId)
       }
+
+      const transactions = ledgerState.getInfoProp(state, 'transactions')
+      if (transactions) {
+        newData = newData.set('transactions', transactions)
+      }
     }
 
     return state.setIn(['ledger', 'info'], newData)
@@ -332,13 +369,6 @@ const ledgerState = {
   /**
    * OTHERS
    */
-  setRecoveryStatus: (state, status) => {
-    state = validateState(state)
-    const date = new Date().getTime()
-    state = state.setIn(['about', 'preferences', 'recoverySucceeded'], status)
-    return state.setIn(['about', 'preferences', 'updatedStamp'], date)
-  },
-
   setLedgerError: (state, error, caller) => {
     state = validateState(state)
     if (error == null && caller == null) {
@@ -349,24 +379,6 @@ const ledgerState = {
       caller: caller,
       error: error
     }))
-  },
-
-  changePinnedValues: (state, publishers) => {
-    state = validateState(state)
-    if (publishers == null) {
-      return state
-    }
-
-    publishers = makeImmutable(publishers)
-    publishers.forEach((item) => {
-      const publisherKey = item.get('publisherKey')
-      const pattern = urlUtil.getHostPattern(publisherKey)
-      const percentage = item.get('pinPercentage')
-      let newSiteSettings = siteSettings.mergeSiteSetting(state.get('siteSettings'), pattern, 'ledgerPinPercentage', percentage)
-      state = state.set('siteSettings', newSiteSettings)
-    })
-
-    return state
   },
 
   /**
@@ -511,17 +523,19 @@ const ledgerState = {
    * ABOUT PAGE
    */
   // TODO (optimization) don't have two almost identical object in state (synopsi->publishers and about->synopsis)
-  saveAboutSynopsis: (state, publishers) => {
+  saveAboutSynopsis: (state, publishers = Immutable.List()) => {
     state = validateState(state)
+    publishers = makeImmutable(publishers)
+    publishers = publishers.sort((prev, next) => (parseFloat(prev.get('percentage')) - parseFloat(next.get('percentage'))) * -1)
+    state = ledgerState.setAboutProp(state, 'synopsis', publishers)
+    state = ledgerState.setAboutProp(state, 'synopsisOptions', ledgerState.getSynopsisOptions(state))
+
     return state
-      .setIn(['ledger', 'about', 'synopsis'], publishers)
-      .setIn(['ledger', 'about', 'synopsisOptions'], ledgerState.getSynopsisOptions(state))
   },
 
   setAboutSynopsisOptions: (state) => {
     state = validateState(state)
-    return state
-      .setIn(['ledger', 'about', 'synopsisOptions'], ledgerState.getSynopsisOptions(state))
+    return ledgerState.setAboutProp(state, 'synopsisOptions', ledgerState.getSynopsisOptions(state))
   },
 
   getAboutData: (state) => {
@@ -545,6 +559,7 @@ const ledgerState = {
     let promotion = ledgerState.getActivePromotion(state)
     const claim = state.getIn(['ledger', 'promotion', 'claimedTimestamp']) || null
     const status = state.getIn(['ledger', 'promotion', 'promotionStatus']) || null
+    const captcha = state.getIn(['ledger', 'promotion', 'captcha']) || null
 
     if (claim) {
       promotion = promotion.set('claimedTimestamp', claim)
@@ -554,7 +569,31 @@ const ledgerState = {
       promotion = promotion.set('promotionStatus', status)
     }
 
+    if (captcha) {
+      promotion = promotion.set('captcha', captcha)
+    }
+
     return promotion
+  },
+
+  setAboutProp: (state, prop, value) => {
+    state = validateState(state)
+
+    if (prop == null) {
+      return state
+    }
+
+    return state.setIn(['ledger', 'about', prop], value)
+  },
+
+  getAboutProp: (state, prop) => {
+    state = validateState(state)
+
+    if (prop == null) {
+      return null
+    }
+
+    return state.getIn(['ledger', 'about', prop])
   }
 }
 

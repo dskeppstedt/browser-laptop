@@ -4,11 +4,9 @@
 
 'use strict'
 
-const Immutable = require('immutable')
 const electron = require('electron')
 const app = electron.app
 const messages = require('../js/constants/messages')
-const BrowserWindow = electron.BrowserWindow
 const appActions = require('../js/actions/appActions')
 const urlParse = require('./common/urlParse')
 const {fileUrl} = require('../js/lib/appUrlUtil')
@@ -17,41 +15,31 @@ const fs = require('fs')
 const path = require('path')
 
 const isDarwin = process.platform === 'darwin'
-const promoCodeFilenameRegex = /-([a-zA-Z\d]{3}\d{3})\s?(?:\(\d+\))?$/g
 const debugTabEventsFlagName = '--debug-tab-events'
 
 let appInitialized = false
 let newWindowURL
 const debugWindowEventsFlagName = '--debug-window-events'
+const disableBufferWindowFlagName = '--disable-buffer-window'
+const disableDeferredWindowLoadFlagName = '--show-windows-immediately'
+const debugStoreActionsFlagName = '--debug-store-actions'
 
 const focusOrOpenWindow = function (url) {
   // don't try to do anything if the app hasn't been initialized
   if (!appInitialized) {
     return false
   }
-
-  let win = BrowserWindow.getFocusedWindow()
-  if (!win) {
-    win = BrowserWindow.getActiveWindow() || BrowserWindow.getAllWindows()[0]
-    if (win) {
-      if (win.isMinimized()) {
-        win.restore()
-      }
-      win.focus()
+  // create a tab and focus the tab's window
+  if (url) {
+    const tabCreateProperties = {
+      url
     }
+    // request to create tab in a new or existing window, and focus the window
+    appActions.createTabRequested(tabCreateProperties, false, false, true)
+    return true
   }
-
-  if (!win) {
-    appActions.newWindow(Immutable.fromJS({
-      location: url
-    }))
-  } else if (url) {
-    appActions.createTabRequested({
-      url,
-      windowId: win.id
-    })
-  }
-
+  // focus the active window, or create a new one with default tabs
+  appActions.focusOrCreateWindow()
   return true
 }
 
@@ -164,13 +152,17 @@ const api = module.exports = {
     // parse promo code from installer path
     // first, get filename
     const fileName = path.win32.parse(installerPath).name
+    const promoCodeFilenameRegex = /-(([a-zA-Z\d]{3}\d{3})|([a-zA-Z]{1,}-[a-zA-Z]{1,}))\s?(?:\(\d+\))?$/g
     const matches = promoCodeFilenameRegex.exec(fileName)
-    if (matches && matches.length === 2) {
+    if (matches && matches.length > 1) {
       return matches[1]
     }
     return null
   },
 
   shouldDebugTabEvents: process.argv.includes(debugTabEventsFlagName),
-  shouldDebugWindowEvents: process.argv.includes(debugWindowEventsFlagName)
+  shouldDebugWindowEvents: process.argv.includes(debugWindowEventsFlagName),
+  disableBufferWindow: process.env.NODE_ENV === 'test' || process.argv.includes(disableBufferWindowFlagName),
+  disableDeferredWindowLoad: process.argv.includes(disableDeferredWindowLoadFlagName),
+  shouldDebugStoreActions: process.argv.includes(debugStoreActionsFlagName)
 }

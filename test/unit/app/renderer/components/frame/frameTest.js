@@ -47,8 +47,7 @@ describe.skip('Frame component unit tests', function () {
   const fakeWindowActions = {
     frameShortcutChanged: () => {},
     setFindbarShown: () => {},
-    setActiveFrame: () => {},
-    setLastZoomPercentage: () => {}
+    setActiveFrame: () => {}
   }
 
   const domUtil = {
@@ -76,10 +75,6 @@ describe.skip('Frame component unit tests', function () {
       useCleanCache: true
     })
 
-    mockery.registerMock('../../extensions/brave/img/urlbar/browser_URL_fund_no_verified.svg', {})
-    mockery.registerMock('../../extensions/brave/img/urlbar/browser_URL_fund_yes_verified.svg', {})
-    mockery.registerMock('../../extensions/brave/img/urlbar/browser_URL_fund_no.svg', {})
-    mockery.registerMock('../../extensions/brave/img/urlbar/browser_URL_fund_yes.svg', {})
     mockery.registerMock('../../extensions/brave/img/caret_down_grey.svg', 'caret_down_grey.svg')
     mockery.registerMock('electron', require('../../../../lib/fakeElectron'))
     mockery.registerMock('../actions/windowActions', fakeWindowActions)

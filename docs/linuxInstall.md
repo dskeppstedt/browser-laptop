@@ -20,7 +20,7 @@ Once `snapd` is installed, installing Brave looks like this:
     snap install brave
 ```
 
-## Debian (Jessie) and Ubuntu (Artful, Zesty, Yakkety, Xenial, and Trusty) AMD64:
+## Debian (Jessie, Stretch) and Ubuntu (Artful, Zesty, Yakkety, Xenial, and Trusty) AMD64:
 
 In the terminal to be used for the below commands, prime the `sudo` command (enter your password once).
 ```
@@ -40,12 +40,18 @@ Verify the `/etc/apt/sources.list.d/brave-*.list` file lists a new repository an
  grep lsb_release /etc/apt/sources.list.d/brave*
  ```
 
+
 Finally, install Brave:
 ```
 sudo apt update
 sudo apt install brave
 ```
 
+If you get this error when updating, you need an additional package.
+> E: Some files failed to download. They have been ignored, or old ones used instead.  
+ ```
+sudo apt-get install apt-transport-https
+ ```
 To install the latest `brave-beta` which often has early staging builds:
 
 ```
@@ -91,13 +97,13 @@ In the terminal to be used for the below commands, prime the `sudo` command (ent
 sudo echo
 ```
 
-For Sarah, Serena and Sonya:
+For Sarah (18), Serena (18.1), Sonya (18.2) and Sylvia (18.3):
 ```
 curl https://s3-us-west-2.amazonaws.com/brave-apt/keys.asc | sudo apt-key add -
 echo "deb [arch=amd64] https://s3-us-west-2.amazonaws.com/brave-apt xenial main" | sudo tee -a /etc/apt/sources.list.d/brave-xenial.list
 ```
 
-For Qiana, Rebecca, Rafaela and Rosa:
+For Qiana (17), Rebecca (17.1), Rafaela (17.2) and Rosa (17.3):
 ```
 curl https://s3-us-west-2.amazonaws.com/brave-apt/keys.asc | sudo apt-key add -
 echo "deb [arch=amd64] https://s3-us-west-2.amazonaws.com/brave-apt trusty main" | sudo tee -a /etc/apt/sources.list.d/brave-trusty.list
@@ -132,6 +138,13 @@ install the dependency for you:
 sudo apt-get -f install
 ```
 
+## Solus
+
+Install Brave through eopkg:
+```
+sudo eopkg install brave
+```
+
 ## Fedora x86_64:
 
 To install Brave using dnf:
@@ -159,7 +172,7 @@ To install Brave using zypper:
 ```
 sudo rpmkeys --import https://s3-us-west-2.amazonaws.com/brave-rpm-release/keys.asc
 sudo zypper install lsb
-sudo zypper addrepo https://s3-us-west-2.amazonaws.com/brave-rpm-release/x86_64/ brave-rpm-release
+sudo zypper addrepo --type yast2 https://s3-us-west-2.amazonaws.com/brave-rpm-release/x86_64/ brave-rpm-release
 sudo zypper ref
 sudo zypper install brave
 ```
@@ -169,6 +182,14 @@ To update Brave using zypper:
 sudo zypper ref
 sudo zypper update brave
 ```
+
+If zypper throws an error similar to
+```
+Problem: nothing provides GConf2 needed by brave-*
+ Solution 1: do not install brave-*
+ Solution 2: break brave-* by ignoring some of its dependencies
+```
+Choose solution 2 and install gconf2 just to be safe. (`sudo zypper in gconf2`)
 
 Alternatively you can install the rpm directly, but then you won't get automatic upgrades:
 ```

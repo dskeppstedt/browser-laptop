@@ -23,6 +23,7 @@ const locale = require('../../locale')
 const {separatorMenuItem} = require('../../common/commonMenu')
 const bookmarkUtil = require('./bookmarkUtil')
 const bookmarkFoldersUtil = require('./bookmarkFoldersUtil')
+const {isSourceAboutUrl} = require('../../../js/lib/appUrlUtil')
 
 /**
  * Get the an electron MenuItem object from a Menu based on its label
@@ -67,16 +68,20 @@ const getTemplateItem = (template, label) => {
   return null
 }
 
+module.exports.extractSiteName = (type) => {
+  return type.charAt(0).toUpperCase() + type.slice(1)
+}
+
 /**
- * Search a menu template and update the checked status
+ * Searches a menu template and updates a passed item key
  *
  * @return the new template OR null if no change was made (no update needed)
  */
-module.exports.setTemplateItemChecked = (template, label, checked) => {
+module.exports.setTemplateItemAttribute = (template, label, key, value) => {
   const menu = template.toJS()
   const menuItem = getTemplateItem(menu, label)
-  if (menuItem.checked !== checked) {
-    menuItem.checked = checked
+  if (menuItem[key] !== value) {
+    menuItem[key] = value
     return makeImmutable(menu)
   }
   return null
@@ -127,6 +132,15 @@ const createBookmarkTemplateItems = (state, parentFolderId) => {
  */
 module.exports.createBookmarkTemplateItems = (state) => {
   return createBookmarkTemplateItems(state)
+}
+
+/**
+ * Used to create bookmarks and bookmark folder entries for "Other Bookamrks" in the "Bookmarks" menu
+ *
+ * @param state The application state
+ */
+module.exports.createOtherBookmarkTemplateItems = (state) => {
+  return createBookmarkTemplateItems(state, -1)
 }
 
 /**
@@ -255,6 +269,11 @@ module.exports.updateRecentlyClosedMenuItems = (appMenu, closedFrames) => {
 
   let visibleItems = 0
   closedFrames.reverse().forEach((frame, url) => {
+    // About pages should not be displayed in recently closed items
+    const isAboutUrl = isSourceAboutUrl(frame.get('location'))
+    if (isAboutUrl) {
+      return
+    }
     const menuIndex = historyMenuIndicesByOrder[url]
     if (visibleItems >= maxMenuItems) {
       if (menuIndex) {

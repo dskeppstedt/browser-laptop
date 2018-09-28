@@ -9,8 +9,11 @@ const Immutable = require('immutable')
 const {makeImmutable} = require('../../../../../app/common/state/immutableUtil')
 const {bookmarksToolbarMode} = require('../../../../../app/common/constants/settingsEnums')
 const dragTypes = require('../../../../../js/constants/dragTypes')
+const appActions = require('../../../../../js/actions/appActions')
+const settingsConstants = require('../../../../../js/constants/settings')
 const siteTags = require('../../../../../js/constants/siteTags')
 const tabState = require('../../../../../app/common/state/tabState')
+const bookmarksState = require('../../../../../app/common/state/bookmarksState')
 const sinon = require('sinon')
 
 require('../../../braveUnit')
@@ -121,6 +124,8 @@ describe('bookmarkUtil unit test', function () {
       useCleanCache: true
     })
     mockery.registerMock('../state/tabState', tabState)
+    mockery.registerMock('../../../js/actions/appActions', appActions)
+    // kind of a sloppy hack; set `settingDefaultValue` to value you'd like returned
     mockery.registerMock('../../../js/settings', {
       getSetting: () => {
         return settingDefaultValue
@@ -171,20 +176,6 @@ describe('bookmarkUtil unit test', function () {
     })
   })
 
-  describe('showOnlyFavicon', function () {
-    it('BOOKMARKS_TOOLBAR_MODE is FAVICONS_ONLY', function () {
-      settingDefaultValue = bookmarksToolbarMode.FAVICONS_ONLY
-      const result = bookmarkUtil.showOnlyFavicon()
-      assert.equal(result, true)
-    })
-
-    it('BOOKMARKS_TOOLBAR_MODE is not FAVICONS_ONLY', function () {
-      settingDefaultValue = bookmarksToolbarMode.TEXT_ONLY
-      const result = bookmarkUtil.showOnlyFavicon()
-      assert.equal(result, false)
-    })
-  })
-
   describe('showFavicon', function () {
     it('BOOKMARKS_TOOLBAR_MODE is FAVICONS_ONLY', function () {
       settingDefaultValue = bookmarksToolbarMode.FAVICONS_ONLY
@@ -201,34 +192,6 @@ describe('bookmarkUtil unit test', function () {
     it('BOOKMARKS_TOOLBAR_MODE is not TEXT_AND_FAVICONS nor FAVICONS_ONLY', function () {
       settingDefaultValue = bookmarksToolbarMode.TEXT_ONLY
       const result = bookmarkUtil.showFavicon()
-      assert.equal(result, false)
-    })
-  })
-
-  describe('showOnlyText', function () {
-    it('BOOKMARKS_TOOLBAR_MODE is TEXT_ONLY', function () {
-      settingDefaultValue = bookmarksToolbarMode.TEXT_ONLY
-      const result = bookmarkUtil.showOnlyText()
-      assert.equal(result, true)
-    })
-
-    it('BOOKMARKS_TOOLBAR_MODE is not TEXT_ONLY', function () {
-      settingDefaultValue = bookmarksToolbarMode.FAVICONS_ONLY
-      const result = bookmarkUtil.showOnlyText()
-      assert.equal(result, false)
-    })
-  })
-
-  describe('showTextAndFavicon', function () {
-    it('BOOKMARKS_TOOLBAR_MODE is TEXT_AND_FAVICONS', function () {
-      settingDefaultValue = bookmarksToolbarMode.TEXT_AND_FAVICONS
-      const result = bookmarkUtil.showTextAndFavicon()
-      assert.equal(result, true)
-    })
-
-    it('BOOKMARKS_TOOLBAR_MODE is not TEXT_AND_FAVICONS', function () {
-      settingDefaultValue = bookmarksToolbarMode.TEXT_ONLY
-      const result = bookmarkUtil.showTextAndFavicon()
       assert.equal(result, false)
     })
   })
@@ -497,8 +460,7 @@ describe('bookmarkUtil unit test', function () {
         themeColor: undefined,
         type: siteTags.BOOKMARK,
         key: 'https://brave.com|0|0',
-        skipSync: null,
-        width: 0
+        skipSync: null
       }
 
       assert.deepEqual(bookmarkUtil.buildBookmark(state, bookmark).toJS(), expectedResult)
@@ -527,8 +489,7 @@ describe('bookmarkUtil unit test', function () {
         themeColor: '#000',
         type: siteTags.BOOKMARK,
         key: 'https://brave.com|0|0',
-        skipSync: null,
-        width: 0
+        skipSync: null
       }
 
       assert.deepEqual(bookmarkUtil.buildBookmark(newState, bookmark).toJS(), expectedResult)
@@ -550,8 +511,7 @@ describe('bookmarkUtil unit test', function () {
         themeColor: '#FFF',
         type: siteTags.BOOKMARK,
         key: 'https://brave.com/|0|0',
-        skipSync: null,
-        width: 0
+        skipSync: null
       }
 
       assert.deepEqual(bookmarkUtil.buildBookmark(stateWithData, bookmark).toJS(), expectedResult)
@@ -559,22 +519,21 @@ describe('bookmarkUtil unit test', function () {
 
     it('bookmark data is in topSites', function () {
       const bookmark = Immutable.fromJS({
-        title: 'Brave',
-        location: 'https://www.facebook.com/BraveSoftware/'
+        title: 'Brave Software | GitHub',
+        location: 'https://github.com/brave/'
       })
 
       const expectedResult = {
-        title: 'Brave',
-        location: 'https://www.facebook.com/BraveSoftware/',
+        title: 'Brave Software | GitHub',
+        location: 'https://github.com/brave/',
         parentFolderId: 0,
         partitionNumber: 0,
         objectId: null,
-        favicon: 'chrome-extension://mnojpmjdmbbfmejpflffifhffcmidifd/img/newtab/defaultTopSitesIcon/facebook.png',
-        themeColor: 'rgb(59, 89, 152)',
+        favicon: 'chrome-extension://mnojpmjdmbbfmejpflffifhffcmidifd/img/newtab/defaultTopSitesIcon/github.png',
+        themeColor: 'rgb(255, 255, 255)',
         type: siteTags.BOOKMARK,
-        key: 'https://www.facebook.com/BraveSoftware/|0|0',
-        skipSync: null,
-        width: 0
+        key: 'https://github.com/brave/|0|0',
+        skipSync: null
       }
 
       assert.deepEqual(bookmarkUtil.buildBookmark(stateWithData, bookmark).toJS(), expectedResult)
@@ -627,6 +586,51 @@ describe('bookmarkUtil unit test', function () {
 
       const expectedBookmark = newBookmark.set('key', 'http://new.brave.com|0|1')
       assert.deepEqual(bookmarkUtil.buildEditBookmark(oldBookmark, newBookmark).toJS(), expectedBookmark.toJS())
+    })
+  })
+
+  describe('closeToolbarIfEmpty', function () {
+    let onChangeSettingSpy
+
+    const removeAllBookmarks = (stateWithBookmarks) => {
+      let newState = stateWithBookmarks
+      for (const bookmarkKey of stateWithBookmarks.get('bookmarks').keys()) {
+        newState = bookmarksState.removeBookmark(newState, bookmarkKey)
+      }
+      return newState
+    }
+
+    beforeEach(function () {
+      onChangeSettingSpy = sinon.spy(appActions, 'changeSetting')
+      settingDefaultValue = true
+    })
+
+    afterEach(function () {
+      onChangeSettingSpy.restore()
+    })
+
+    describe('when SHOW_BOOKMARKS_TOOLBAR is false', function () {
+      beforeEach(function () {
+        settingDefaultValue = false
+      })
+
+      it('does not call appActions.changeSetting if bookmarks toolbar is hidden', function () {
+        let newState = removeAllBookmarks(stateWithData)
+        bookmarkUtil.closeToolbarIfEmpty(newState)
+        assert.equal(onChangeSettingSpy.notCalled, true)
+      })
+    })
+
+    it('does not hide bookmarks toolbar if bookmarks still exist', function () {
+      let newState = bookmarksState.removeBookmark(stateWithData, 'https://brave.com/|0|0')
+      bookmarkUtil.closeToolbarIfEmpty(newState)
+      assert.equal(onChangeSettingSpy.notCalled, true)
+    })
+
+    it('hides bookmarks toolbar when all toolbar bookmarks are removed', function () {
+      let newState = removeAllBookmarks(stateWithData)
+      bookmarkUtil.closeToolbarIfEmpty(newState)
+      assert.ok(onChangeSettingSpy.calledWith(settingsConstants.SHOW_BOOKMARKS_TOOLBAR, false))
     })
   })
 })

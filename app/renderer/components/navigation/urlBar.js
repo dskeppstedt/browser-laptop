@@ -41,6 +41,7 @@ const {normalizeLocation, getNormalizedSuggestion} = require('../../../common/li
 const isDarwin = require('../../../common/lib/platformUtil').isDarwin()
 const publisherUtil = require('../../../common/lib/publisherUtil')
 const historyUtil = require('../../../common/lib/historyUtil')
+const locale = require('../../../../js/l10n')
 
 // Icons
 const iconNoScript = require('../../../../img/url-bar-no-script.svg')
@@ -61,6 +62,7 @@ class UrlBar extends React.Component {
     this.onKeyPress = this.onKeyPress.bind(this)
     this.onClick = this.onClick.bind(this)
     this.onContextMenu = this.onContextMenu.bind(this)
+    this.setUrlBarRef = this.setUrlBarRef.bind(this)
   }
 
   maybeUrlBarTextChanged (value) {
@@ -213,6 +215,10 @@ class UrlBar extends React.Component {
     }
   }
 
+  onUrlBarIconContainerClick () {
+    windowActions.setSiteInfoVisible(true)
+  }
+
   onBlur (e) {
     windowActions.urlBarOnBlur(getCurrentWindowId(), e.target.value, this.props.urlbarLocation, eventElHasAncestorWithClasses(e, ['urlBarSuggestions', 'urlbarForm']))
   }
@@ -355,6 +361,14 @@ class UrlBar extends React.Component {
 
   componentDidUpdate (prevProps) {
     if (this.props.activeFrameKey !== prevProps.activeFrameKey) {
+      const classNameChangingTab = 'urlbarForm_tabChanged'
+      if (this.urlBarRef && !this.urlBarRef.classList.contains(classNameChangingTab)) {
+        // ensure we can disable transitions between tabs
+        this.urlBarRef.classList.add(classNameChangingTab)
+        window.requestAnimationFrame(() => {
+          this.urlBarRef.classList.remove(classNameChangingTab)
+        })
+      }
       // The user just changed tabs
       this.setValue(this.props.urlbarLocation)
 
@@ -379,6 +393,28 @@ class UrlBar extends React.Component {
       this.setValue(this.props.urlbarLocation)
     }
 
+    // load progress
+    if (!this.props.loading && prevProps.loading) {
+      // Stop loading
+      this.urlBarRef.style.setProperty('--navigation-progress-percent', '100%')
+      window.requestAnimationFrame(() => {
+        const tra = () => {
+          this.urlBarRef.removeEventListener('transitionend', tra)
+          this.urlBarRef.style.setProperty('--navigation-progress-percent', '0%')
+        }
+        this.urlBarRef.addEventListener('transitionend', tra)
+      })
+    } else if (this.props.loading && !prevProps.loading) {
+      // Begin loading
+      const initialLoadingPercent = this.props.navigationProgressPercent
+        ? this.props.navigationProgressPercent === 100 ? 0 : this.props.navigationProgressPercent
+        : 0
+      this.urlBarRef.style.setProperty('--navigation-progress-percent', `${initialLoadingPercent}%`)
+    } else if (this.props.navigationProgressPercent !== prevProps.navigationProgressPercent) {
+      const percentString = this.props.navigationProgressPercent ? `${this.props.navigationProgressPercent}%` : '0%'
+      this.urlBarRef.style.setProperty('--navigation-progress-percent', percentString)
+    }
+
     if (this.props.isSelected && !prevProps.isSelected) {
       this.select()
       windowActions.urlBarSelected(false)
@@ -388,6 +424,26 @@ class UrlBar extends React.Component {
       // There are no blocked scripts, so hide the noscript dialog.
       windowActions.setNoScriptVisible(false)
     }
+  }
+
+  get placeholderValue () {
+    if (this.props.isTor) {
+      if (this.props.torInitializationError) {
+        return `${locale.translation('torConnectionError')}.`
+      } else if (this.props.torPercentInitialized) {
+        // Don't show 100% since it sometimes gets stuck at 100%
+        const percentInitialized = this.props.torPercentInitialized === '100' ? '99' : this.props.torPercentInitialized
+        if (percentInitialized === '0') {
+          return `${locale.translation('urlbarPlaceholderTorProgress')}...`
+        }
+        return `${locale.translation('urlbarPlaceholderTorProgress')}: ${percentInitialized}%...`
+      } else if (this.props.torInitializationError === false) {
+        return locale.translation('urlbarPlaceholderTorSuccess')
+      } else {
+        return `${locale.translation('urlbarPlaceholderTorProgress')}...`
+      }
+    }
+    return locale.translation('urlbarPlaceholder')
   }
 
   get titleValue () {
@@ -410,6 +466,9 @@ class UrlBar extends React.Component {
   }
 
   onContextMenu (e) {
+    if (this.torInitializing) {
+      return
+    }
     contextMenus.onUrlBarContextMenu(e)
   }
 
@@ -437,6 +496,7 @@ class UrlBar extends React.Component {
     const selectedIndex = urlbar.getIn(['suggestions', 'selectedIndex'])
     const allSiteSettings = siteSettingsState.getAllSiteSettings(state, activeFrameIsPrivate)
     const braverySettings = siteSettings.getSiteSettingsForURL(allSiteSettings, location)
+    const isTor = frameStateUtil.isTor(activeFrame)
 
     // TODO(bridiver) - these definitely needs a helpers
     const publisherKey = ledgerState.getLocationProp(state, baseUrl, 'publisher')
@@ -460,6 +520,11 @@ class UrlBar extends React.Component {
     props.startLoadTime = activeFrame.get('startLoadTime')
     props.endLoadTime = activeFrame.get('endLoadTime')
     props.loading = activeFrame.get('loading')
+    props.navigationProgressPercent = tabState.getNavigationProgressPercent(state, activeTabId)
+
+    props.isTor = isTor
+    props.torPercentInitialized = state.getIn(['tor', 'percentInitialized'])
+    props.torInitializationError = state.getIn(['tor', 'initializationError'])
     props.showDisplayTime = !props.titleMode && props.displayURL === location
     props.showNoScriptInfo = enableNoScript && scriptsBlocked && scriptsBlocked.size
     props.evCert = activeFrame.getIn(['security', 'evCert'])
@@ -489,21 +554,37 @@ class UrlBar extends React.Component {
   }
 
   get showEvCert () {
-    if (this.props.titleMode) {
+    if (this.props.isActive) {
       return null
     }
     return <span className='evCert' title={this.props.evCert}> {this.props.evCert} </span>
   }
 
+  get torInitializing () {
+    // Returns true if the current tab is a Tor tab and Tor has not yet
+    // initialized successfully
+    return this.props.isTor &&
+      (this.props.torPercentInitialized || this.props.torInitializationError !== false)
+  }
+
+  get shouldDisable () {
+    return (this.props.displayURL === undefined && this.loadTime === '') ||
+      this.torInitializing
+  }
+
+  setUrlBarRef (ref) {
+    this.urlBarRef = ref
+  }
+
   render () {
     const urlbarIconContainer = this.props.evCert
-    ? (<div className='urlbarIconContainer'>
+    ? (<div onClick={this.onUrlBarIconContainerClick} className='urlbarIconContainer'>
       <UrlBarIcon
         titleMode={this.props.titleMode}
       />
       {this.showEvCert}
     </div>)
-    : (<div className='urlbarIconContainer'>
+    : (<div onClick={this.onUrlBarIconContainerClick} className='urlbarIconContainer'>
       <UrlBarIcon
         titleMode={this.props.titleMode}
       />
@@ -511,22 +592,26 @@ class UrlBar extends React.Component {
     return <div
       className={cx({
         urlbarForm: true,
+        urlBarForm_focused: this.props.isFocused,
+        urlBarForm_titleMode: this.props.titleMode,
+        urlBarForm_loading: this.props.loading,
         [css(styles.urlbarForm_wide)]: this.props.isWideURLbarEnabled,
         noBorderRadius: this.props.publisherButtonVisible
       })}
+      ref={this.setUrlBarRef}
       id='urlbar'
     >
       {urlbarIconContainer}
       {
         this.props.titleMode
-        ? <div id='titleBar' data-test-id='titleBar'>
+        ? <div className='titleBar' data-test-id='titleBar'>
           <span><strong>{this.props.hostValue}</strong></span>
           <span>{this.props.hostValue && this.titleValue ? ' | ' : ''}</span>
           <span>{this.titleValue}</span>
         </div>
         : <input type='text'
           spellCheck='false'
-          disabled={this.props.displayURL === undefined && this.loadTime === ''}
+          disabled={this.shouldDisable}
           onFocus={this.onFocus}
           onBlur={this.onBlur}
           onKeyDown={this.onKeyDown}
@@ -539,6 +624,7 @@ class UrlBar extends React.Component {
           onClick={this.onClick}
           onContextMenu={this.onContextMenu}
           data-l10n-id='urlbar'
+          placeholder={this.placeholderValue}
           className={cx({
             testHookLoadDone: !this.props.loading
           })}
@@ -581,6 +667,7 @@ class UrlBar extends React.Component {
 }
 
 const styles = StyleSheet.create({
+
   noScriptContainer: {
     display: 'flex',
     padding: '5px',

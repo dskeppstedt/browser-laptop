@@ -5,28 +5,34 @@
 const React = require('react')
 const {StyleSheet, css} = require('aphrodite/no-important')
 
-// components
+// Components
 const ImmutableComponent = require('../../immutableComponent')
 const SortableTable = require('../../common/sortableTable')
 const SwitchControl = require('../../common/switchControl')
 const BrowserButton = require('../../common/browserButton')
 const PinnedInput = require('./pinnedInput')
+const {SettingCheckbox, SiteSettingCheckbox} = require('../../common/settings')
 
-// style
+// Actions
+const appActions = require('../../../../../js/actions/appActions')
+const aboutActions = require('../../../../../js/about/aboutActions')
+
+// Constants
+const settings = require('../../../../../js/constants/settings')
+
+// Utils
+const getSetting = require('../../../../../js/settings').getSetting
+const urlUtil = require('../../../../../js/lib/urlutil')
+const locale = require('../../../../../js/l10n')
+const ledgerUtil = require('../../../../common/lib/ledgerUtil')
+
+// Style
 const globalStyles = require('../../styles/global')
 const {paymentStylesVariables} = require('../../styles/payment')
 const verifiedGreenIcon = require('../../../../extensions/brave/img/ledger/verified_green_icon.svg')
 const verifiedWhiteIcon = require('../../../../extensions/brave/img/ledger/verified_white_icon.svg')
 const removeIcon = require('../../../../extensions/brave/img/ledger/icon_remove.svg')
 const pinIcon = require('../../../../extensions/brave/img/ledger/icon_pin.svg')
-
-// other
-const settings = require('../../../../../js/constants/settings')
-const getSetting = require('../../../../../js/settings').getSetting
-const aboutActions = require('../../../../../js/about/aboutActions')
-const urlUtil = require('../../../../../js/lib/urlutil')
-const {SettingCheckbox, SiteSettingCheckbox} = require('../../common/settings')
-const locale = require('../../../../../js/l10n')
 
 class LedgerTable extends ImmutableComponent {
   get synopsis () {
@@ -39,7 +45,7 @@ class LedgerTable extends ImmutableComponent {
 
   onFaviconError (faviconURL, publisherKey) {
     console.log('missing or corrupted favicon file', faviconURL)
-    // Set the publishers favicon to null so that it gets refetched
+    // Set the publishers favicon to null so that it gets re-fetched
     aboutActions.setLedgerFavicon(publisherKey, null)
   }
 
@@ -100,14 +106,28 @@ class LedgerTable extends ImmutableComponent {
     return synopsis.get('pinPercentage')
   }
 
-  banSite (hostPattern) {
+  banSite (hostPattern, siteName) {
     const confMsg = locale.translation('banSiteConfirmation')
     if (window.confirm(confMsg)) {
       aboutActions.changeSiteSetting(hostPattern, 'ledgerPaymentsShown', false)
+      aboutActions.changeSiteSetting(hostPattern, 'siteName', siteName)
     }
   }
 
-  togglePinSite (hostPattern, pinned, percentage) {
+  banSiteDuringReconcile () {
+    const msg = locale.translation('cannotBanSiteOnReconcile')
+    window.alert(msg)
+  }
+
+  deleteSite (synopsis, siteName) {
+    if (this.props.paymentInProgress) {
+      this.banSiteDuringReconcile()
+    } else {
+      this.banSite(this.getHostPattern(synopsis), siteName)
+    }
+  }
+
+  togglePinSite (hostPattern, publisherKey, pinned, percentage) {
     if (pinned) {
       if (percentage < 1) {
         percentage = 1
@@ -115,10 +135,10 @@ class LedgerTable extends ImmutableComponent {
         percentage = Math.floor(percentage)
       }
 
-      aboutActions.changeSiteSetting(hostPattern, 'ledgerPinPercentage', percentage)
+      appActions.onLedgerPinPublisher(publisherKey, percentage)
       aboutActions.changeSiteSetting(hostPattern, 'ledgerPayments', true)
     } else {
-      aboutActions.changeSiteSetting(hostPattern, 'ledgerPinPercentage', 0)
+      appActions.onLedgerPinPublisher(publisherKey, 0)
     }
   }
 
@@ -153,6 +173,25 @@ class LedgerTable extends ImmutableComponent {
     ]
   }
 
+  getImage (faviconURL, providerName, publisherKey) {
+    if (!faviconURL && providerName) {
+      faviconURL = ledgerUtil.getDefaultMediaFavicon(providerName)
+    }
+
+    if (!faviconURL) {
+      return <span className={css(styles.siteData__anchor__icon_default)}>
+        <span className={globalStyles.appIcons.defaultIcon} />
+      </span>
+    }
+
+    return <img
+      className={css(styles.siteData__anchor__icon_favicon)}
+      src={faviconURL}
+      alt=''
+      onError={this.onFaviconError.bind(null, faviconURL, publisherKey)}
+    />
+  }
+
   getRow (synopsis) {
     const faviconURL = synopsis.get('faviconURL')
     const views = synopsis.get('views')
@@ -162,6 +201,7 @@ class LedgerTable extends ImmutableComponent {
     const publisherURL = synopsis.get('publisherURL')
     const percentage = pinned ? this.pinPercentageValue(synopsis) : synopsis.get('percentage')
     const publisherKey = synopsis.get('publisherKey')
+    const providerName = synopsis.get('providerName')
     const siteName = synopsis.get('siteName')
     const defaultAutoInclude = this.enabledForSite(synopsis)
 
@@ -178,12 +218,8 @@ class LedgerTable extends ImmutableComponent {
       {
         html: <div className={css(styles.siteData)}>
           <a className={css(styles.siteData__anchor)} href={publisherURL} rel='noopener' target='_blank' tabIndex={-1}>
-            {
-              faviconURL
-                ? <img className={css(styles.siteData__anchor__icon_favicon)} src={faviconURL} alt='' onError={this.onFaviconError.bind(null, faviconURL, publisherKey)} />
-                : <span className={css(styles.siteData__anchor__icon_default)}><span className={globalStyles.appIcons.defaultIcon} /></span>
-            }
-            <span className={css(styles.siteData__anchor__url)} data-test-id='siteName'>{siteName}</span>
+            { this.getImage(faviconURL, providerName, publisherKey) }
+            <span className={css(styles.siteData__anchor__url)} title={siteName} data-test-id='siteName'>{siteName}</span>
           </a>
         </div>,
         value: publisherKey
@@ -220,7 +256,7 @@ class LedgerTable extends ImmutableComponent {
             pinned
             ? <PinnedInput
               defaultValue={percentage}
-              patern={this.getHostPattern(synopsis)}
+              publisherKey={publisherKey}
             />
             : <span className={css(styles.regularPercentage)}>{percentage}</span>
           }
@@ -234,19 +270,51 @@ class LedgerTable extends ImmutableComponent {
             styles.actionIcons__icon_pin,
             pinned && styles.actionIcons__icon_pin_isPinned
           )}
-            onClick={this.togglePinSite.bind(this, this.getHostPattern(synopsis), !pinned, percentage)}
+            onClick={this.togglePinSite.bind(this, this.getHostPattern(synopsis), publisherKey, !pinned, percentage)}
             data-test-pinned={pinned}
           />
           <span className={css(
             styles.actionIcons__icon,
             styles.actionIcons__icon_remove
           )}
-            onClick={this.banSite.bind(this, this.getHostPattern(synopsis))}
+            onClick={this.deleteSite.bind(this, synopsis, siteName)}
           />
         </div>,
         value: ''
       }
     ]
+  }
+
+  /**
+   * Function used for determination if table should be sorted or not
+   * For comparison we use publisher percentage, number of views and time spent.
+   * We compare previous values with new values that we received.
+   * @param prevRows - Previous value for the table
+   * @param currentRows - New value for the table
+   * @returns {boolean} - Was something changed and if so let's trigger the sort
+   */
+  sortCheck (prevRows, currentRows) {
+    if (prevRows && currentRows && currentRows.length === prevRows.length) {
+      for (let i = 0; i < currentRows.length; i++) {
+        const newRow = currentRows[i]
+        const oldRow = prevRows[i]
+
+        for (let j = 0; j < newRow.length; j++) {
+          if (
+            newRow[j] &&
+            oldRow[j] &&
+            newRow[j][5] &&
+            newRow[j][3] &&
+            newRow[j][4] &&
+            (
+              newRow[j][5].value !== oldRow[j][5].value || // %
+              newRow[j][3].value !== oldRow[j][3].value || // views
+              newRow[j][4].value !== oldRow[j][4].value // time
+            )
+          ) return true
+        }
+      }
+    }
   }
 
   render () {
@@ -328,6 +396,7 @@ class LedgerTable extends ImmutableComponent {
           pinnedRows.map((synopsis) => this.getRow(synopsis)).toJS(),
           unPinnedRows.map((synopsis) => this.getRow(synopsis)).toJS()
         ]}
+        sortCheck={this.sortCheck}
       />
       {
         showButton
@@ -410,6 +479,13 @@ const styles = StyleSheet.create({
     display: 'flex',
     flex: '1',
     alignItems: 'center'
+  },
+
+  siteData__anchor: {
+    width: '430px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap'
   },
 
   siteData__anchor__icon_favicon: {

@@ -297,7 +297,13 @@ describe('historyUtil unit tests', function () {
   describe('getDetailFromFrame', function () {
     it('null case', function () {
       const result = historyUtil.getDetailFromFrame()
-      assert.deepEqual(result, Immutable.Map())
+      assert.deepEqual(result, null)
+    })
+
+    it('no location case', function () {
+      const badFrame = Immutable.Map().set('partitionNumber', 0)
+      const result = historyUtil.getDetailFromFrame(badFrame)
+      assert.deepEqual(result, null)
     })
 
     it('returns details', function () {
@@ -308,7 +314,6 @@ describe('historyUtil unit tests', function () {
         isFullScreen: false,
         isPrivate: false,
         key: 1,
-        lastZoomPercentage: 1,
         loading: true,
         location: 'https://brave.com',
         title: 'Brave'

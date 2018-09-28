@@ -11,8 +11,8 @@ const messages = require('../../../js/constants/messages')
 const settings = require('../../../js/constants/settings')
 
 // State
+const aboutPreferencesState = require('../../common/state/aboutPreferencesState')
 const ledgerState = require('../../common/state/ledgerState')
-const migrationState = require('../../common/state/migrationState')
 
 // Actions
 const appActions = require('../../../js/actions/appActions')
@@ -28,16 +28,17 @@ const text = {
   addFunds: locale.translation('addFundsNotification'),
   tryPayments: locale.translation('notificationTryPayments'),
   reconciliation: locale.translation('reconciliationNotification'),
-  walletConvertedToBat: locale.translation('walletConvertedToBat')
+  backupKeys: locale.translation('backupKeys')
 }
 
-const pollingInterval = 15 * ledgerUtil.milliseconds.minute // 15 * minutes
+const pollingInterval = process.env.LEDGER_NOTIFICATION ? ledgerUtil.milliseconds.second * 5 : 15 * ledgerUtil.milliseconds.minute // 15 * minute default production
 let intervalTimeout
 const displayOptions = {
   style: 'greetingStyle',
   persist: false
 }
 const nextAddFundsTime = 3 * ledgerUtil.milliseconds.day
+let backupNotifyInterval = process.env.LEDGER_NOTIFICATION ? [2 * ledgerUtil.milliseconds.minute, 5 * ledgerUtil.milliseconds.minute] : [7 * ledgerUtil.milliseconds.day, 14 * ledgerUtil.milliseconds.day]
 
 const sufficientBalanceToReconcile = (state) => {
   const balance = Number(ledgerState.getInfoProp(state, 'balance') || 0)
@@ -45,11 +46,11 @@ const sufficientBalanceToReconcile = (state) => {
   const budget = ledgerState.getContributionAmount(state)
   return balance + unconfirmed >= budget
 }
-const hasFunds = (state) => {
-  const balance = getSetting(settings.PAYMENTS_ENABLED)
-    ? Number(ledgerState.getInfoProp(state, 'balance') || 0)
-    : 0
-  return balance > 0
+
+const hasFunded = (state) => {
+  return getSetting(settings.PAYMENTS_ENABLED)
+  ? ledgerState.getInfoProp(state, 'userHasFunded') || false
+  : false
 }
 const shouldShowNotificationReviewPublishers = () => {
   const nextTime = getSetting(settings.PAYMENTS_NOTIFICATION_RECONCILE_SOON_TIMESTAMP)
@@ -70,43 +71,13 @@ const init = () => {
   }, pollingInterval)
 }
 
-const onLaunch = (state) => {
-  const enabled = getSetting(settings.PAYMENTS_ENABLED)
-  if (!enabled) {
-    return state
-  }
-
-  const ledger = require('./ledger')
-  state = ledger.checkBtcBatMigrated(state, enabled)
-
-  if (hasFunds(state)) {
-    // Don't bother processing the rest, which are only
-    if (!getSetting(settings.PAYMENTS_NOTIFICATIONS)) {
-      return state
-    }
-
-    // Show one-time BAT conversion message:
-    // - if payments are enabled
-    // - user has a positive balance
-    // - this is an existing profile (new profiles will have firstRunTimestamp matching batMercuryTimestamp)
-    // - wallet has been transitioned
-    // - notification has not already been shown yet
-    // (see https://github.com/brave/browser-laptop/issues/11021)
-    const isNewInstall = migrationState.isNewInstall(state)
-    const hasUpgradedWallet = migrationState.hasUpgradedWallet(state)
-    const hasBeenNotified = migrationState.hasBeenNotified(state)
-    if (!isNewInstall && hasUpgradedWallet && !hasBeenNotified) {
-      module.exports.showBraveWalletUpdated()
-    }
-  }
-
-  return state
-}
-
 const onInterval = (state) => {
+  if (process.env.LEDGER_NOTIFICATION) {
+    runDebugCounter()
+  }
   if (getSetting(settings.PAYMENTS_ENABLED)) {
     if (getSetting(settings.PAYMENTS_NOTIFICATIONS)) {
-      module.exports.showEnabledNotifications(state)
+      state = module.exports.showEnabledNotifications(state)
     }
   } else {
     module.exports.showDisabledNotifications(state)
@@ -147,7 +118,7 @@ const onResponse = (message, buttonIndex, activeWindow) => {
       } else if (buttonIndex === 2 && activeWindow) {
         // Add funds: Open payments panel
         appActions.createTabRequested({
-          url: 'about:preferences#payments',
+          url: 'about:preferences#payments?addFundsOverlayVisible',
           windowId: activeWindow.id
         })
       }
@@ -181,16 +152,16 @@ const onResponse = (message, buttonIndex, activeWindow) => {
       appActions.changeSetting(settings.PAYMENTS_NOTIFICATION_TRY_PAYMENTS_DISMISSED, true)
       break
 
-    case text.walletConvertedToBat:
+    case text.backupKeys:
       if (buttonIndex === 0) {
-        // Open backup modal
+        appActions.changeSetting(settings.PAYMENTS_NOTIFICATIONS, false)
+      } else if (buttonIndex === 2 && activeWindow) {
         appActions.createTabRequested({
           url: 'about:preferences#payments?ledgerBackupOverlayVisible',
           windowId: activeWindow.id
         })
       }
       break
-
     default:
       return
   }
@@ -219,6 +190,11 @@ const onDynamicResponse = (message, actionId, activeWindow) => {
         appActions.onPromotionRemind()
         break
       }
+    case 'noThanks':
+      {
+        appActions.changeSetting(settings.PAYMENTS_ALLOW_PROMOTIONS, false)
+        break
+      }
   }
 
   appActions.hideNotification(message)
@@ -229,14 +205,17 @@ const onDynamicResponse = (message, actionId, activeWindow) => {
  * a day in the future and balance is too low.
  * 24 hours prior to reconciliation, show message asking user to review
  * their votes.
+ *
+ * If not time to reconcile, check to show backup notification ()
  */
 const showEnabledNotifications = (state) => {
+  const now = new Date().getTime()
+  let bootStamp = ledgerState.getInfoProp(state, 'bootStamp')
   const reconcileStamp = ledgerState.getInfoProp(state, 'reconcileStamp')
   if (!reconcileStamp) {
-    return
+    return state
   }
-
-  if (reconcileStamp - new Date().getTime() < ledgerUtil.milliseconds.day) {
+  if (reconcileStamp - now < ledgerUtil.milliseconds.day) {
     if (sufficientBalanceToReconcile(state)) {
       if (shouldShowNotificationReviewPublishers()) {
         const reconcileFrequency = ledgerState.getInfoProp(state, 'reconcileFrequency')
@@ -245,11 +224,38 @@ const showEnabledNotifications = (state) => {
     } else if (shouldShowNotificationAddFunds()) {
       showAddFunds()
     }
-  } else if (reconcileStamp - new Date().getTime() < 2 * ledgerUtil.milliseconds.day) {
+  } else if (reconcileStamp - now < 2 * ledgerUtil.milliseconds.day) {
     if (sufficientBalanceToReconcile(state) && (shouldShowNotificationReviewPublishers())) {
-      showReviewPublishers(new Date().getTime() + ledgerUtil.milliseconds.day)
+      showReviewPublishers(now + ledgerUtil.milliseconds.day)
+    }
+  } else if (hasFunded(state) && !aboutPreferencesState.hasBeenBackedUp(state)) {
+    const backupNotifyCount = aboutPreferencesState.getPreferencesProp(state, 'backupNotifyCount') || 0
+    const backupNotifyTimestamp = aboutPreferencesState.getPreferencesProp(state, 'backupNotifyTimestamp') || backupNotifyInterval[0]
+    if (!bootStamp) {
+      bootStamp = now
+      state = ledgerState.setInfoProp(state, 'bootStamp', bootStamp)
+    }
+    if (now - bootStamp > backupNotifyTimestamp) {
+      const nextTime = backupNotifyTimestamp + getNextBackupNotification(state, backupNotifyCount + 1, backupNotifyInterval) // set next time to notify case for remind later
+      state = aboutPreferencesState.setPreferencesProp(state, 'backupNotifyCount', (backupNotifyCount + 1))
+      state = aboutPreferencesState.setPreferencesProp(state, 'backupNotifyTimestamp', nextTime)
+      module.exports.showBackupKeys(nextTime)
+    }
+    if (process.env.LEDGER_NOTIFICATION) {
+      watchNotificationTimers(now, bootStamp, backupNotifyCount, backupNotifyTimestamp)
     }
   }
+  return state
+}
+
+const getNextBackupNotification = (state, count, interval) => {
+  if (count >= (interval && interval.constructor === Array ? interval.length : 0)) {
+    if (process.env.LEDGER_NOTIFICATION) {
+      return ledgerUtil.milliseconds.minute
+    }
+    return ledgerUtil.milliseconds.month
+  }
+  return interval[count]
 }
 
 const showDisabledNotifications = (state) => {
@@ -270,6 +276,20 @@ const showDisabledNotifications = (state) => {
       options: displayOptions
     })
   }
+}
+
+const showBackupKeys = (nextTime) => {
+  appActions.showNotification({
+    position: 'global',
+    greeting: text.hello,
+    message: text.backupKeys,
+    buttons: [
+      {text: locale.translation('turnOffNotifications')},
+      {text: locale.translation('updateLater')},
+      {text: locale.translation('backupKeysNow'), className: 'primaryButton'}
+    ],
+    options: displayOptions
+  })
 }
 
 const showReviewPublishers = (nextTime) => {
@@ -306,10 +326,10 @@ const showAddFunds = () => {
 }
 
 // Called from observeTransactions() when we see a new payment (transaction).
-const showPaymentDone = (transactionContributionFiat) => {
+const showPaymentDone = (transactionContribution) => {
   text.paymentDone = locale.translation('notificationPaymentDone')
-    .replace(/{{\s*amount\s*}}/, transactionContributionFiat.amount)
-    .replace(/{{\s*currency\s*}}/, transactionContributionFiat.currency)
+    .replace(/{{\s*amount\s*}}/, ledgerUtil.probiToFormat(transactionContribution.get('probi')))
+    .replace(/{{\s*currency\s*}}/, transactionContribution.getIn(['fiat', 'currency']))
   // Hide the 'waiting for deposit' message box if it exists
   appActions.hideNotification(text.addFunds)
   appActions.showNotification({
@@ -321,27 +341,6 @@ const showPaymentDone = (transactionContributionFiat) => {
       {text: locale.translation('Ok'), className: 'primaryButton'}
     ],
     options: displayOptions
-  })
-}
-
-const showBraveWalletUpdated = () => {
-  appActions.onBitcoinToBatNotified()
-
-  appActions.showNotification({
-    position: 'global',
-    greeting: text.hello,
-    message: text.walletConvertedToBat,
-    // Learn More.
-    buttons: [
-      {text: locale.translation('walletConvertedBackup')},
-      {text: locale.translation('walletConvertedDismiss')}
-    ],
-    options: {
-      style: 'greetingStyle',
-      persist: false,
-      advancedLink: 'https://brave.com/faq-payments/#brave-payments',
-      advancedText: locale.translation('walletConvertedLearnMore')
-    }
   })
 }
 
@@ -373,6 +372,13 @@ const showPromotionNotification = (state) => {
   const data = notification.toJS()
   data.position = 'global'
 
+  if (data.buttons) {
+    data.buttons.unshift({
+      text: locale.translation('noThanks'),
+      buttonActionId: 'noThanks'
+    })
+  }
+
   appActions.showNotification(data)
 }
 
@@ -384,6 +390,16 @@ const removePromotionNotification = (state) => {
   }
 
   appActions.hideNotification(notification.get('message'))
+}
+
+const watchNotificationTimers = (now, bootStamp, backupNotifyCount, backupNotifyTimestamp) => { // for testing
+  console.log('now - bootstamp: ' + (now - bootStamp))
+  console.log('count: ' + backupNotifyCount)
+  console.log('backupNotifyTimestamp: ' + backupNotifyTimestamp)
+}
+
+const runDebugCounter = () => {
+  console.log(new Date().getTime() / ledgerUtil.milliseconds.second)
 }
 
 if (ipc) {
@@ -409,15 +425,16 @@ const getMethods = () => {
   const publicMethods = {
     showPaymentDone,
     init,
-    onLaunch,
-    showBraveWalletUpdated,
     onInterval,
     onPromotionReceived,
     removePromotionNotification,
     showDisabledNotifications,
     showEnabledNotifications,
     onIntervalDynamic,
-    showPromotionNotification
+    showPromotionNotification,
+    showBackupKeys,
+    hasFunded,
+    getNextBackupNotification
   }
 
   let privateMethods = {}
